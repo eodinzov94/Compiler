@@ -8,10 +8,8 @@
 %x COMMENT
 
 %%
- /*POINTER TYPES*/
-"int*" | "char*" | "real*"                 				 	  {yylval.string = strdup(yytext); return VALTYPE;}
- /*PRIMITIVE TYPES*/
-"bool" | "char" | "int" | "real"  					            {yylval.string = strdup(yytext); return VALTYPE;}
+ /*PRIMITIVE + POINTER TYPES*/
+"bool"|"real"|"int"|"char"|"int*"|"char*"|"real*"		{yylval.string = strdup(yytext); return VALTYPE;}
  /*STRING TYPE*/
 "string"                                                       {yylval.string = strdup(yytext); return STR;}
  /*STATEMENTS*/

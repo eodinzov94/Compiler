@@ -15,6 +15,7 @@ node *mknode(char *token, node *left, node *right);
 void printTree(node *tree);
 int yyerror();
 int yywrap();
+int counter = 1;
 /*void printTabs(int a);*/
 /*void freeTree(node *tree);*/
 %}
@@ -33,8 +34,8 @@ int yywrap();
 %token <string> BOOLVAL CHARVAL DECVAL HEXVAL REALVAL STRVAL ID
 
 %type <node> code program
-%type <node> functions procedure function params param body
-%type <node> IDs var_decs primitive_decs primitive_dec array_decs primitive_multiple_decs array_multiple_dec array_dec
+%type <node> functions procedure function parameter_list param body
+%type <node> id_list var_decs primitive_decs primitive_dec array_decs primitive_multiple_decs array_multiple_dec array_dec
 %type <node> assignment call conditions block
 %type <node> primitive_assignment index_assigment pointer_assigment func_expressions
 %type <node> loops while do_while for
@@ -45,8 +46,8 @@ int yywrap();
 %nonassoc IF
 %nonassoc ELSE
 %nonassoc '{'
-%right '}'
 %right UNARY
+%right '}'
 %right ADDRS
 %left ASS
 %left AND
@@ -60,124 +61,123 @@ int yywrap();
 
 %%
 /*---------------------------------------Start program--------------------------------------------------------------*/
-program: code							                    {printTree($1);};
-code: functions                          					{$$=mknode("CODE",$1,NULL);};
+program: code							                    {printf("program:%d\n",counter);counter++;printTree($1);};
+code: functions                          					{printf("code:%d\n",counter);counter++;$$=mknode("\nCODE",$1,NULL);};
 /*----------------------------------------Functions---------------------------------------------------*/
-functions: function functions    					        {$$=mknode("",$1,$2);}                     
-| procedure	functions									    {$$=mknode("",$1,$2);}  	
-| function													{$$=$1;} 
-| procedure													{$$=$1;};																										
-function:  VALTYPE ID '(' params ')' block       	        {$$=mknode("FUNCTION",mknode($2,mknode("ARGS",$4,mknode($1,NULL,mknode("BODY",$6,NULL))),NULL),NULL);};
-procedure: VOID ID '(' params ')' block          	        {$$=mknode("PROCEDURE",mknode($2,mknode("ARGS",$4,mknode("VOID",NULL,mknode("BODY",$6,NULL))),NULL),NULL);};
-body: function body 										{$$=mknode("",$1,$2);} 
-| var_decs body 											{$$=mknode("",$1,$2);}
-| block											            {$$=$1;} 
-| body_condition_statement '}'                              {$$=$1;};
-| epsilon													{$$=NULL;};
-params: param ';' params  									{$$=mknode("",$1,$3);}
-| param														{$$=$1;};
-param: VALTYPE IDs											{$$=mknode($1,$2,NULL);}
-| epsilon                                                   {$$=NULL;}; 
-
+functions: function functions    					        {printf("functions:%d\n",counter);counter++;$$=mknode("",$1,$2);}                     
+| procedure	functions									    {printf("functions:%d\n",counter);counter++;$$=mknode("",$1,$2);}  	
+| function													{printf("functions:%d\n",counter);counter++;$$=$1;} 
+| procedure													{printf("functions:%d\n",counter);counter++;$$=$1;};																										
+function:  VALTYPE ID '(' parameter_list ')' block       	        {printf("function:%d\n",counter);counter++;$$=mknode("FUNCTION",mknode($2,mknode("ARGS",$4,mknode($1,NULL,mknode("BODY",$6,NULL))),NULL),NULL);};
+procedure: VOID ID '(' parameter_list ')' block          	        {printf("proc:%d\n",counter);;counter++;$$=mknode("PROCEDURE",mknode($2,mknode("ARGS",$4,mknode("VOID",NULL,mknode("BODY",$6,NULL))),NULL),NULL);};
+body: function body 										{printf("func body:%d\n",counter);counter++;$$=mknode("",$1,$2);} 
+| procedure body                                            {printf("proc body:%d\n",counter);counter++;$$=mknode("",$1,$2);}
+| var_decs body 											{printf("var body:%d\n",counter);counter++;$$=mknode("",$1,$2);}
+| block											            {printf("block:%d\n",counter );counter++;$$=$1;} 
+| body_condition_statement '}'                              {printf("body_con:%d\n",counter );counter++;$$=$1;}
+| epsilon													{printf("epsi_body:%d\n",counter );counter++;$$=NULL;};
+parameter_list: param ';' parameter_list  									{printf("param_list:%d\n",counter );counter++;$$=mknode("",$1,$3);}
+| param	                                                    {printf("param_from_list:%d\n",counter );counter++;$$=$1;}
+| epsilon													{printf("epsilon_from_list:%d\n", counter);counter++;$$=mknode("NO_ARGS",NULL,NULL);};
+param: VALTYPE id_list											{printf("param:%d\n", counter);counter++;$$=mknode($1,$2,NULL);};            
+id_list: ID ','  id_list 										   {printf("id_list:%d\n",counter );counter++;$$=mknode($1,$3,NULL);}                                          
+| ID                                                       {printf("ID_from-id_list:%d\n", counter);counter++;$$=mknode($1,NULL,NULL);};
 /*---------------------------------------Variable Declarations-----------------------------------------------------------*/	
                                                      
-IDs: ID ','  IDs 										   {$$=mknode($1,$3,NULL);}                                          
-| ID                                                       {$$=mknode($1,NULL,NULL);};
-var_decs: primitive_decs								   {$$=$1;}
-| array_decs                                               {$$=$1;};
+var_decs: primitive_decs								   {printf("var_decs_prim:%d\n", counter);counter++;$$=$1;}
+| array_decs                                               {printf("var_decs_arr:%d\n",counter );counter++;$$=$1;};
 /* --------------------pointer_decs TODO---------------------*/
-primitive_decs: VAR VALTYPE ID ASS expression "," primitive_multiple_decs ';' {$$=mknode($2,mknode("=",mknode($3,NULL,NULL),$5),$7);}
-| VAR VALTYPE ID "," primitive_multiple_decs ';'                              {$$=mknode($2,mknode($3,NULL,NULL),$5);}        
-| primitive_dec                                                               {$$=$1;};
-primitive_multiple_decs: ID "," primitive_multiple_decs						  {$$=mknode($1,NULL,$3);} 
-| ID ASS expression "," primitive_multiple_decs                               {$$=mknode("",mknode("=",mknode($1,NULL,NULL),$3),$5);}
-| ID                                                                          {$$=mknode($1,NULL,NULL);}
-| ID ASS expression														      {$$=mknode("=",mknode($1,NULL,NULL),$3);};
-primitive_dec: VAR VALTYPE ID ASS expression ';'                              {$$=mknode($2,mknode("=",mknode($3,NULL,NULL),$5),NULL);}
-|VAR VALTYPE ID ';'															  {$$=mknode($2,mknode($3,NULL,NULL),NULL);}  ;
-array_decs: array_decs "," array_multiple_dec ';'                             {$$=mknode("",$1,$3);}
-| array_dec                                                                   {$$=$1;};																
-array_multiple_dec: ID '[' expression ']' ASS STRVAL ',' array_multiple_dec   {$$=NULL;}  
-| ID '[' expression ']' ',' array_multiple_dec {$$=NULL;}
-| ID '[' expression ']'    {$$=NULL;}
-| ID '[' expression ']' ASS STRVAL {$$=NULL;};
-array_dec: STR ID '[' expression ']' ASS STRVAL ';' {$$=NULL;}
-| STR ID '[' expression ']' ';' {$$=NULL;};
+primitive_decs: primitive_dec primitive_multiple_decs                    {printf("primitive_decs-mult_ass:%d\n",counter );counter++;$$=mknode("",$1,$2);}
+| primitive_dec ';'                                                              {printf("primitive_decs-dec:%d\n",counter );counter++;$$=$1;};
+primitive_multiple_decs: ',' ID  primitive_multiple_decs						  {printf("prim_mult_decs-mult:%d\n", counter);counter++;$$=mknode($2,NULL,$3);} 
+| ',' ID ASS expression primitive_multiple_decs                               {printf("prim_mult_decs-mult-ass:%d\n", counter);counter++;$$=mknode("",mknode("=",mknode($2,NULL,NULL),$4),$5);}
+| ',' ID  ';'                                                                        {printf("prim_mult_decs-ID:%d\n", counter);counter++;$$=mknode($2,NULL,NULL);}
+| ',' ID ASS expression	';'													      {printf("prim_mult_decs-mult-ASS:%d\n",counter );counter++;$$=mknode("=",mknode($2,NULL,NULL),$4);};
+primitive_dec: VAR VALTYPE ID ASS expression                              {printf("primitive_dec:%d\n", counter);counter++;$$=mknode($2,mknode("=",mknode($3,NULL,NULL),$5),NULL);}
+|VAR VALTYPE ID 															  {printf("primitive_dec:%d\n",counter );counter++;$$=mknode($2,mknode($3,NULL,NULL),NULL);}  ;
+array_decs: array_decs "," array_multiple_dec ';'                             {printf("array_decs:%d\n",counter );counter++;$$=mknode("",$1,$3);}
+| array_dec                                                                   {printf("array_decs:%d\n",counter );counter++;$$=$1;};																
+array_multiple_dec: ID '[' expression ']' ASS STRVAL ',' array_multiple_dec   {counter++;$$=NULL;}  
+| ID '[' expression ']' ',' array_multiple_dec {counter++;$$=NULL;}
+| ID '[' expression ']'    { counter++;$$=NULL;;}
+| ID '[' expression ']' ASS STRVAL { counter++;$$=NULL;;};
+array_dec: VAR STR ID '[' expression ']' ASS STRVAL ';' { counter++;$$=NULL;;}
+| VAR STR ID '[' expression ']' ';' { counter++;$$=NULL;;};
 
  
 /*-------------------------------------------Statments--------------------------------------------------------------------*/
-condition_statments: condition_statment condition_statments{$$=NULL;}
-| condition_statment {$$=NULL;} ;
-condition_statment: assignment {$$=NULL;}
-| call {$$=NULL;} 
-| conditions {$$=NULL;}
-| loops {$$=NULL;}
-| return {$$=NULL;}
-| '{' condition_statments '}' {$$=NULL;};
-body_condition_statement: '{' condition_statments {$$=NULL;};
+condition_statments: condition_statment condition_statments{ counter++;$$=NULL;;}
+| condition_statment { counter++;$$=NULL;;} ;
+condition_statment: assignment { counter++;$$=NULL;;}
+| call { counter++;$$=NULL;;} 
+| conditions { counter++;$$=NULL;;}
+| loops { counter++;$$=NULL;;}
+| return { counter++;$$=NULL;;}
+| '{' condition_statments '}' { counter++;$$=NULL;;};
+body_condition_statement: '{' condition_statments { counter++;$$=NULL;;};
 /*---------------------------------------Assignment----------------------------------------------------------------------*/
-assignment: primitive_assignment {$$=NULL;}
-| index_assigment {$$=NULL;}
-| pointer_assigment {$$=NULL;};
-primitive_assignment: ID ASS expression ';' {$$=NULL;};
-index_assigment: ID '[' expression ']' ASS STRVAL ';' {$$=NULL;};
-pointer_assigment: MULT ID ASS expression ';' {$$=NULL;};
+assignment: primitive_assignment { counter++;$$=NULL;;}
+| index_assigment { counter++;$$=NULL;;}
+| pointer_assigment { counter++;$$=NULL;;};
+primitive_assignment: ID ASS expression ';' { counter++;$$=NULL;;};
+index_assigment: ID '[' expression ']' ASS STRVAL ';' { counter++;$$=NULL;;};
+pointer_assigment: MULT ID ASS expression ';' { counter++;$$=NULL;;};
 /*----------------------------------------Code Block--------------------------------------------------------------------*/
-block: '{' body '}' {$$=NULL;};
+block: '{' body '}' { printf("block:%d\n",counter );counter++;;$$=$2;;};
 /*-----------------------------------------Procedure/Function Calls-----------------------------------------------------*/
-call: ID '(' func_expressions ')' ';' {$$=NULL;};
-func_expressions: expression ',' func_expressions {$$=NULL;}
-| expression {$$=NULL;}
-| epsilon     {$$=NULL;};
+call: ID '(' func_expressions ')' ';' { counter++;$$=NULL;;};
+func_expressions: expression ',' func_expressions { counter++;$$=NULL;;}
+| expression { counter++;$$=NULL;;}
+| epsilon     { counter++;$$=NULL;;};
 /*----------------------------------------Conditions--------------------------------------------------------------------*/
-conditions: IF '(' expression ')' condition_statment %prec IF {$$=NULL;}
-|IF '(' expression ')' condition_statment ELSE condition_statment {$$=NULL;};
+conditions: IF '(' expression ')' condition_statment %prec IF { counter++;$$=NULL;;}
+|IF '(' expression ')' condition_statment ELSE condition_statment { counter++;$$=NULL;;};
 /*-----------------------------------------Loops------------------------------------------------------------------------*/
-loops: do_while {$$=NULL;}
-| for {$$=NULL;}
-| while {$$=NULL;};
-while: WHILE '(' expression ')' condition_statment {$$=NULL;};
-do_while: DO '{' condition_statments '}' WHILE '(' expression ')' ';' {$$=NULL;};
-for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statment {$$=NULL;};
+loops: do_while { counter++;$$=NULL;;}
+| for { counter++;$$=NULL;;}
+| while { counter++;$$=NULL;;};
+while: WHILE '(' expression ')' condition_statment { counter++;$$=NULL;;};
+do_while: DO '{' condition_statments '}' WHILE '(' expression ')' ';' { counter++;$$=NULL;;};
+for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statment { counter++;$$=NULL;;};
 /*-----------------------------------------Return-----------------------------------------------------------------------*/
-return: RETURN expression ';' {$$=NULL;};
+return: RETURN expression ';' { counter++;$$=NULL;;};
 /*-----------------------------------------Expression--------------------------------------------------------------------*/
-expression: expression PLUS expression   {$$=NULL;}           				
-| expression MINUS expression         {$$=NULL;}      												
-| expression MULT expression	{$$=NULL;}
-| expression DIV expression    {$$=NULL;}
-| expression OR expression		{$$=NULL;}						
-| expression AND expression			{$$=NULL;}												
-| expression EQ expression			{$$=NULL;}				
-| expression NOTEQ expression {$$=NULL;}
-| expression L expression		{$$=NULL;}						
-| expression LE expression	{$$=NULL;}						
-| expression GR expression		{$$=NULL;}							
-| expression GRE expression		{$$=NULL;}
-| unary_operator expression %prec UNARY		{$$=NULL;}																	
-| literal_val                   {$$=NULL;}
-| ID			{$$=NULL;}	
-| call			{$$=NULL;}		
-| '|' ID '|'			{$$=NULL;}								
-| '(' expression ')'      {$$=NULL;}																																						
-| ID '[' expression ']'	{$$=NULL;};
+expression: expression PLUS expression   { counter++;$$=NULL;;}           				
+| expression MINUS expression         { counter++;$$=NULL;;}      												
+| expression MULT expression	{ counter++;$$=NULL;;}
+| expression DIV expression    { counter++;$$=NULL;;}
+| expression OR expression		{ counter++;$$=NULL;;}						
+| expression AND expression			{ counter++;$$=NULL;;}												
+| expression EQ expression			{ counter++;$$=NULL;;}				
+| expression NOTEQ expression { counter++;$$=NULL;;}
+| expression L expression		{ counter++;$$=NULL;;}						
+| expression LE expression	{ counter++;$$=NULL;;}						
+| expression GR expression		{ counter++;$$=NULL;;}							
+| expression GRE expression		{ counter++;$$=NULL;;}
+| unary_operator expression %prec UNARY		{ counter++;$$=NULL;;}																	
+| literal_val                   { counter++;$$=$1;;}
+| ID			{ counter++;$$=NULL;;}	
+| call			{ counter++;$$=NULL;;}		
+| '|' ID '|'			{ counter++;$$=NULL;;}								
+| '(' expression ')'      { counter++;$$=NULL;;}																																						
+| ID '[' expression ']'	{ counter++;$$=NULL;;};
 
-unary_operator: PLUS {$$=NULL;} 
-| MINUS{$$=NULL;}
-| MULT{$$=NULL;}
-| ADDRS {$$=NULL;}
-| NOT {$$=NULL;};
+unary_operator: PLUS { counter++;$$=NULL;;} 
+| MINUS{ counter++;$$=NULL;;}
+| MULT{ counter++;$$=NULL;;}
+| ADDRS { counter++;$$=NULL;;}
+| NOT { counter++;$$=NULL;;};
 
 
 
 /*--------------------------------------------Literal Values-------------------------------------------------------------------*/
-literal_val: BOOLVAL	{$$=NULL;}									
-	|CHARVAL	{$$=NULL;}								
-	|DECVAL			{$$=NULL;}					
-	|HEXVAL				{$$=NULL;}					
-	|REALVAL {$$=NULL;}
-    |STRVAL		{$$=NULL;}							
-	|PNULL	{$$=NULL;}									;
+literal_val: BOOLVAL	{ counter++;$$=mknode($1,NULL,NULL);}									
+	|CHARVAL	{ counter++;$$=mknode($1,NULL,NULL);}								
+	|DECVAL			{ counter++;$$=mknode($1,NULL,NULL);}					
+	|HEXVAL				{ counter++;$$=mknode($1,NULL,NULL);}					
+	|REALVAL { counter++;$$=mknode($1,NULL,NULL);}
+    |STRVAL		{ counter++;$$=mknode($1,NULL,NULL);}							
+	|PNULL	{ counter++;$$=mknode($1,NULL,NULL);}									;
 
 epsilon: ;
 %%
