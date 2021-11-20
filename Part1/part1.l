@@ -49,12 +49,12 @@
 '[^\']'                                                        {yylval.string = strdup(yytext); return CHARVAL;}
 0|[1-9][0-9]*													{yylval.string = strdup(yytext); return DECVAL;}
 0[xX][0-9A-F]+													{yylval.string = strdup(yytext); return HEXVAL;}
-[-+]?[0-9]*[\.][0-9]*?[eE][-+]?[1-9]+|[-+]?[0-9]*[\.]?[0-9]+   {yylval.string = strdup(yytext); return REALVAL;}		
+[0-9]*[\.][0-9]*?[eE][-+]?[1-9]+|[0-9]*[\.]?[0-9]+   {yylval.string = strdup(yytext); return REALVAL;}		
 \"[^\"]*\"														{yylval.string = strdup(yytext); return STRVAL;}
 [a-zA-Z][a-zA-Z0-9_]*											{yylval.string = strdup(yytext); return ID;}
  /*OTHERS*/
 "\n"															{yylineno++;}
-[ \t]													        {;}
+[ \t\r]													        {;}
  /*COMMENT*/
 \/\*															{BEGIN(COMMENT);}
 <COMMENT>\*\/													{BEGIN(INITIAL);}
