@@ -66,136 +66,157 @@ void freeTree(node *tree);
 
 /*#################################################################RULES###########################################################################*/
 %%
-/*======================================================Start program======================================================*/
-program: code							                    {printTree($1,0);freeTree($1);};
-code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")",""));};
+/*======================================================Start Program======================================================*/
+program: code							                    {printTree($1,0);freeTree($1);}
+;
+code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")",""));}
+;
 /*======================================================Functions======================================================*/
 functions: function functions    					        {$$=mknode("","",$1,$2);}                     
 | procedure	functions									    {$$=mknode("","",$1,$2);}  	
 | function													{$$=$1;} 
-| procedure													{$$=$1;};																										
-function:  VALTYPE ID '(' parameter_list ')' '{' body '}'       	        {$$=mknode("FUNCTION","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode(mkcat("RET_TYPE ",$1),"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
-procedure: VOID ID '(' parameter_list ')' '{' body '}'          	        {$$=mknode("PROCEDURE","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode(mkcat("RET_TYPE ","VOID"),"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
-
+| procedure													{$$=$1;}
+;																										
+function:  VALTYPE ID '(' parameter_list ')' '{' body '}'   {$$=mknode("FUNCTION","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode(mkcat("RET_TYPE ",$1),"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
+procedure: VOID ID '(' parameter_list ')' '{' body '}'      {$$=mknode("PROCEDURE","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode(mkcat("RET_TYPE ","VOID"),"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));}
+;
 body: function body 										{$$=mknode("","",$1,$2);} 
 | procedure body                                            {$$=mknode("","",$1,$2);}
 | var_decs body 											{$$=mknode("","",$1,$2);}
-| statements %prec '}'									{$$= $1;}
+| statements %prec '}'									    {$$= $1;}
 | epsilon													{$$=NULL;};
-parameter_list: param ';' parameter_list  									{$$=mknode("","",$1,$3);}
+parameter_list: param ';' parameter_list  					{$$=mknode("","",$1,$3);}
 | param	                                                    {$$=$1;}
 | epsilon													{$$=mkleaf("(NO_ARGS)","");};
-param: VALTYPE id_list											{$$=mknode(mkcat("(",$1),"VALTYPE",$2,mkleaf(")",""));};            
-id_list: ID ','  id_list 										   {$$=mknode($1,"ID",NULL,$3);}                                          
-| ID                                                       {$$=mkleaf($1,"ID");};
-/*======================================================Variable Declarations======================================================*/	
-                                                     
-var_decs: primitive_decs								   {$$=$1;}
+param: VALTYPE id_list										{$$=mknode(mkcat("(",$1),"VALTYPE",$2,mkleaf(")",""));};            
+id_list: ID ','  id_list 									{$$=mknode($1,"ID",NULL,$3);}                                          
+| ID                                                        {$$=mkleaf($1,"ID");}
+;
+/*======================================================Variable Declarations======================================================*/	                                         
+var_decs: primitive_decs								    {$$=$1;}
 | string_decs                                               {$$=$1;};
-primitive_decs: primitive_dec primitive_multiple_decs                    {$$=mknode("","D-RIGHT",$1,$2);}
-| primitive_dec ';'                                                              {$$=$1;};
-primitive_multiple_decs: ',' ID  primitive_multiple_decs						  {$$=mknode($2,"ID",NULL,$3);} 
-| ',' ID ASS expression primitive_multiple_decs                               {$$=mknode("","",mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")","")),$5);}
-| ',' ID  ';'                                                                        {$$=mkleaf($2,"ID");}
-| ',' ID ASS expression	';'													      {$$=mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")",""));};
-primitive_dec: VAR VALTYPE ID ASS expression                              {$$=mknode("","",mknode($2,"VALTYPE",mknode("=","ASS",mkleaf($3,"ID"),$5),NULL),mkleaf(")","CLOSE_RIGHT"));}
-|VAR VALTYPE ID 															  {$$=mknode($2,"VALTYPE",mkleaf($3,"ID"),NULL);}  ;
-string_decs: string_dec string_multiple_dec ';'                             {$$=mknode("","D-RIGHT",$1,$2);}
-| string_dec ';'                                                            {$$=$1;};		
-
-string_multiple_dec: ',' ID '[' expression ']' ASS STRVAL string_multiple_dec   {$$=mknode("","",mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","")),$8);}  
-|',' ID '[' expression ']'  string_multiple_dec  {$$=mknode("","",mknode($2,"ID",$4,NULL),$6);} 
-|',' ID '[' expression ']'    {$$=mknode("","",mknode($2,"ID",$4,NULL),NULL);}
-|',' ID '[' expression ']' ASS STRVAL {$$=mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")",""));};
-string_dec: STR ID '[' expression ']' ASS STRVAL  {$$=mknode($1,"",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","CLOSE_RIGHT"));}
-| STR ID '[' expression ']'  {$$=mknode($1,"",mknode($2,"ID",$4,NULL),NULL);};
-
- 
+primitive_decs: primitive_dec primitive_multiple_decs       {$$=mknode("","D-RIGHT",$1,$2);}
+| primitive_dec ';'                                         {$$=$1;};
+primitive_multiple_decs: ',' ID  primitive_multiple_decs	{$$=mknode($2,"ID",NULL,$3);} 
+| ',' ID ASS expression primitive_multiple_decs             {$$=mknode("","",mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")","")),$5);}
+| ',' ID  ';'                                               {$$=mkleaf($2,"ID");}
+| ',' ID ASS expression	';'									{$$=mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")",""));};
+primitive_dec: VAR VALTYPE ID ASS expression                {$$=mknode("","",mknode($2,"VALTYPE",mknode("=","ASS",mkleaf($3,"ID"),$5),NULL),mkleaf(")","CLOSE_RIGHT"));}
+|VAR VALTYPE ID 											{$$=mknode($2,"VALTYPE",mkleaf($3,"ID"),NULL);}  ;
+string_decs: string_dec string_multiple_dec ';'             {$$=mknode("","D-RIGHT",$1,$2);}
+| string_dec ';'                                            {$$=$1;}
+;		
+string_multiple_dec: ',' ID '[' expression ']' ASS STRVAL string_multiple_dec   
+															{$$=mknode("","",mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","")),$8);}  
+|',' ID '[' expression ']'  string_multiple_dec  			{$$=mknode("","",mknode($2,"ID",$4,NULL),$6);} 
+|',' ID '[' expression ']'    								{$$=mknode("","",mknode($2,"ID",$4,NULL),NULL);}
+|',' ID '[' expression ']' ASS STRVAL 						{$$=mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")",""));}
+;
+string_dec: STR ID '[' expression ']' ASS STRVAL  			{$$=mknode($1,"",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","CLOSE_RIGHT"));}
+| STR ID '[' expression ']' 								{$$=mknode($1,"",mknode($2,"ID",$4,NULL),NULL);}
+;
 /*======================================================Statments======================================================*/
-statements: statement statements {$$=mknode("","",$1,$2);}
-| statement { $$=$1;};
-statement: block { $$=$1;}
-| condition_statement { $$=$1;};
-condition_statement:call ';' { $$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
-| conditions { $$=mknode("","",$1,NULL);}
-| loops { $$=mknode("","",$1,NULL);}
-| return { $$=mknode("","",$1,NULL);}
-| assignment ';'{ $$=mknode("","RIGHT",$1,NULL);}
-| '{' statements '}' { $$=mknode("BLOCK","",$2,mkleaf(")",""));} 
-| ';' {$$=NULL;};
+statements: statement statements 							{$$=mknode("","",$1,$2);}
+| statement 												{$$=$1;}
+;
+statement: block 											{$$=$1;}
+| condition_statement 										{$$=$1;}
+;
+condition_statement:call ';' 								{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
+| conditions 												{$$=mknode("","",$1,NULL);}
+| loops 													{$$=mknode("","",$1,NULL);}
+| return 													{$$=mknode("","",$1,NULL);}
+| assignment ';'											{$$=mknode("","RIGHT",$1,NULL);}
+| '{' statements '}' 										{$$=mknode("BLOCK","",$2,mkleaf(")",""));} 
+| ';' 														{$$=NULL;}
+;
 /*======================================================Assignment======================================================*/
-assignment: primitive_assignment { $$=$1;}
-| index_assigment { $$=$1;}
-| pointer_assigment { $$=$1;}; 
-primitive_assignment: ID ASS expression  { $$=mknode("","LEFT",mknode($2,"ASS",mkleaf($1,"ID"),$3),mkleaf(")","CLOSE_ASS"));};
-index_assigment: ID '[' expression ']' ASS expression  {$$=mknode("","LEFT",mknode($5,"ASS",mknode($1,"",$3,NULL),$6),mkleaf(")","CLOSE_ASS"));};
-pointer_assigment: MULT ID ASS expression  { $$=mknode("","LEFT",mknode($3,"ASS",mknode("PTR","",mkleaf($2,"ID"),NULL),$4),mkleaf(")","CLOSE_ASS"));};
-/*----------------------------------------Code Block--------------------------------------------------------------------*/
-block: '{' body '}' { $$=mknode("BLOCK","",$2,mkleaf(")",""));};
+assignment: primitive_assignment 							{$$=$1;}
+| index_assigment 											{$$=$1;}
+| pointer_assigment 										{$$=$1;}
+; 
+primitive_assignment: ID ASS expression  					{$$=mknode("","LEFT",mknode($2,"ASS",mkleaf($1,"ID"),$3),mkleaf(")","CLOSE_ASS"));}
+;
+index_assigment: ID '[' expression ']' ASS expression  		{$$=mknode("","LEFT",mknode($5,"ASS",mknode($1,"",$3,NULL),$6),mkleaf(")","CLOSE_ASS"));}
+;
+pointer_assigment: MULT ID ASS expression  					{$$=mknode("","LEFT",mknode($3,"ASS",mknode("PTR","",mkleaf($2,"ID"),NULL),$4),mkleaf(")","CLOSE_ASS"));}
+;
+/*======================================================Code Block======================================================*/
+block: '{' body '}' 										{$$=mknode("BLOCK","",$2,mkleaf(")",""));}
+;
 /*======================================================Procedure/Function Calls======================================================*/
-call: ID '(' func_expressions ')' {$$=mknode($1,"ID",$3,NULL);}
-|ID '(' ')' { $$=mkleaf($1,"ID");};
-func_expressions: expression ',' func_expressions { $$=mknode("","",$1,$3);}
-| expression { $$=$1;};
+call: ID '(' func_expressions ')' 							{$$=mknode($1,"ID",$3,NULL);}
+|ID '(' ')' 												{$$=mkleaf($1,"ID");}
+;
+func_expressions: expression ',' func_expressions 			{$$=mknode("","",$1,$3);}
+| expression 												{$$=$1;}
+;
 /*======================================================Conditions======================================================*/
-conditions: IF '(' expression ')' condition_statement %prec IF { $$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| IF '(' expression ')' '{' '}' %prec IF { $$=mknode("IF","",$3,mkleaf(")",""));}
-|IF '(' expression ')' '{' '}' ELSE condition_statement { $$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","",mknode("","RIGHT",$8,NULL),mkleaf(")","")));}
-|IF '(' expression ')' condition_statement ELSE '{' '}' { $$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",NULL,mkleaf(")","")));}
-|IF '(' expression ')' condition_statement ELSE condition_statement { $$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
-|IF '(' expression ')' '{' '}' ELSE '{' '}' { $$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","RIGHT",NULL,mkleaf(")","")));};
+conditions: IF '(' expression ')' condition_statement %prec IF 
+															{$$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
+| IF '(' expression ')' '{' '}' %prec IF 					{$$=mknode("IF","",$3,mkleaf(")",""));}
+| IF '(' expression ')' '{' '}' ELSE condition_statement 	{$$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","",mknode("","RIGHT",$8,NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE '{' '}' 	{$$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",NULL,mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE condition_statement 
+															{$$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
+| IF '(' expression ')' '{' '}' ELSE '{' '}' 				{$$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","RIGHT",NULL,mkleaf(")","")));}
+;
 /*======================================================Loops======================================================*/
-loops: do_while { $$=$1;}
-| for { $$=$1;}
-| while { $$=$1;};
-while: WHILE '(' expression ')' condition_statement {$$=mknode("WHILE","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| WHILE '(' expression ')' '{' '}' {$$=mknode("WHILE","",$3,mkleaf(")",""));};
-do_while: DO '{' statements '}' WHILE '(' expression ')' ';' { $$=mknode("DO","",$3,mknode("WHILE-COND","",$7,mkleaf(")","")));};
+loops: do_while 											{$$=$1;}
+| for 														{$$=$1;}
+| while 													{$$=$1;}
+;
+while: WHILE '(' expression ')' condition_statement 		{$$=mknode("WHILE","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
+| WHILE '(' expression ')' '{' '}' 							{$$=mknode("WHILE","",$3,mkleaf(")",""));}
+;
+do_while: DO '{' statements '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",$3,mknode("WHILE-COND","",$7,mkleaf(")","")));};
 for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statement 
-{ $$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$9))),mkleaf(")",""));}
-|FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' '}'
-{ $$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,NULL))),NULL);};
+															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$9))),mkleaf(")",""));}
+| FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' '}'
+															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,NULL))),NULL);}
+;
 /*======================================================Return======================================================*/
-return: RETURN expression ';' { $$ = mknode("RETURN","",$2,mkleaf(")",""));};
+return: RETURN expression ';' 								{$$ = mknode("RETURN","",$2,mkleaf(")",""));}
+;
 /*======================================================Expression======================================================*/
-expression: expression PLUS expression   {$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}           				
-| expression MINUS expression			 {$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}       												
-| expression MULT expression			{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression DIV expression  			 {$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression OR expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
-| expression AND expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}   											
-| expression EQ expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}		
-| expression NOTEQ expression			 {$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression L expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
-| expression LE expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}				
-| expression GR expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}							
-| expression GRE expression				{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| unary_operator expression %prec UNARY		{ $$=mknode($1,"UN_OP",$2,NULL);}									
-| literal_val                   { $$=mkleaf($1,"LIT");}
-| ID			{ $$=mkleaf($1,"ID");}	
-| call			{ $$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
-| ADDRS ID											{ $$=mknode("ADDRESS","",mkleaf($2,"ID"),NULL);}
-| ADDRS ID '[' expression ']'							{ $$=mknode("ADDRESS","",mknode($2,"",$4,NULL),NULL);}		
-| '|' ID '|'			{ $$=mknode("LEN","ID",mkleaf($2,"ID"),NULL);}								
-| '(' expression ')'      { $$=$2;}																																						
-| ID '[' expression ']'	{ $$=mknode($1,"ID",$3,NULL);};
-unary_operator: PLUS { $$=$1;}
-| MINUS { $$=$1;}
-| MULT { $$=$1;}
-| NOT { $$=$1;};
-
-
-
+expression: expression PLUS expression   					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}           				
+| expression MINUS expression			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}       												
+| expression MULT expression								{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression DIV expression  			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression OR expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
+| expression AND expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}   											
+| expression EQ expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}		
+| expression NOTEQ expression			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression L expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
+| expression LE expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}				
+| expression GR expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}							
+| expression GRE expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| unary_operator expression %prec UNARY						{$$=mknode($1,"UN_OP",$2,NULL);}									
+| literal_val                   							{$$=mkleaf($1,"LIT");}
+| ID														{$$=mkleaf($1,"ID");}	
+| call														{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
+| ADDRS ID													{$$=mknode("ADDRESS","",mkleaf($2,"ID"),NULL);}
+| ADDRS ID '[' expression ']'								{$$=mknode("ADDRESS","",mknode($2,"",$4,NULL),NULL);}		
+| '|' ID '|'												{$$=mknode("LEN","ID",mkleaf($2,"ID"),NULL);}								
+| '(' expression ')'      								    {$$=$2;}																																						
+| ID '[' expression ']'										{$$=mknode($1,"ID",$3,NULL);}
+;
+unary_operator: PLUS 										{$$=$1;}
+| MINUS 													{$$=$1;}
+| MULT 														{$$=$1;}
+| NOT 														{$$=$1;}
+;
 /*======================================================Literal Values======================================================*/
-literal_val: BOOLVAL	{$$=$1;}									
-	|CHARVAL	{$$=$1;}							
-	|DECVAL			{$$=$1;}				
-	|HEXVAL				{$$=$1;}				
-	|REALVAL {$$=$1;}
-    |STRVAL		{$$=$1;}							
-	|PNULL	{$$=strdup("NULL");};
-
-epsilon: ;
+literal_val: BOOLVAL										{$$=$1;}									
+|CHARVAL													{$$=$1;}							
+|DECVAL														{$$=$1;}				
+|HEXVAL														{$$=$1;}				
+|REALVAL 													{$$=$1;}
+|STRVAL														{$$=$1;}							
+|PNULL														{$$=strdup("NULL");}	
+;
+epsilon: 
+;
 %%
 /*####################################################END################################################################################*/
 
@@ -211,8 +232,7 @@ int yyerror(char *err){
 int yywrap(){
 	return 1;
 }
-node *mknode(char* value,char *token,node *left,node *right)
-{
+node *mknode(char* value,char *token,node *left,node *right){
  node *newnode = (node*)malloc(sizeof(node));
  newnode->left = left;
  newnode->right = right;

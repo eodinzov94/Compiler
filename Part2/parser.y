@@ -77,7 +77,8 @@ int getType(char* type);
 void freeENVs(env* head);
 void exitWithError();
 int* getArgsTypeFromRoot(node* root,int* len);
-env* addArgsToEnv(env* env,node* root);
+env* addArgsToEnv(env* env,node* root,int numOfArgs);
+void findCheckMain();
 int numOfmains = 0;
 env * global = NULL;
 node * root = NULL;
@@ -133,8 +134,8 @@ code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")"
 /*======================================================Functions======================================================*/
 functions: function functions    					        {$$=mknode("","FUNCTIONS",$1,$2);}                     
 | procedure	functions									    {$$=mknode("","FUNCTIONS",$1,$2);}  	
-| function													{$$=$1;} 
-| procedure													{$$=$1;}
+| function													{$$=mknode("","FUNCTIONS",$1,NULL);} 
+| procedure													{$$=mknode("","FUNCTIONS",$1,NULL);}
 ;																										
 function:  VALTYPE ID '(' parameter_list ')' '{' body '}'   {$$=mknode("FUNCTION","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode($1,"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
 procedure: VOID ID '(' parameter_list ')' '{' body '}'      {$$=mknode("PROCEDURE","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode("VOID","",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));}
@@ -439,6 +440,9 @@ func* mkFunc(char* name,int* argsType,int returnType,int numOfArgs){
 	node->numOfArgs = numOfArgs;
 	node->returnType = returnType;
 	node->next = NULL;
+	if(!strcmp(name,"main")){
+		numOfmains++;
+	}
 	return node;
 
 }
@@ -474,7 +478,7 @@ env* addFuncToEnv(env* env, func* func){
 		env->funcs=func;
 	}else{
 		if(!findFunc(env->funcs,func->name)){
-				env->funcs = addFunc(env->funcs,func);
+			env->funcs = addFunc(env->funcs,func);
 		}else{
 			printf("\nFunction with name %s already declared\n",func->name);
 			exitWithError();
@@ -577,7 +581,7 @@ bool findFunc(func* head,char* name){
 	{
 		return FALSE;
 	}
-	while(!head){
+	while(head){
 		if(!strcmp(head->name,name)){
 			return TRUE;
 		}
@@ -585,38 +589,7 @@ bool findFunc(func* head,char* name){
 	}
 	return FALSE;
 }
-void startSemanticalAnalysis(node* root){
-	if(root==NULL){
-		return;
-	}
-	if(!strcmp(root->value,"CODE")){
-		global = mkEnv(GLOBAL);
-		startSemanticalAnalysis(root->left);
-		if(numOfmains!=1){
-			printf("\nThere should be exact one main\n");
-			exitWithError(root);
-		}
-	}
-	else if(!strcmp(root->token,"FUNCTIONS")){
-		startSemanticalAnalysis(root->left);
-		/*startSemanticalAnalysis(root->right);*/
-	}
-	else if(!strcmp(root->value,"FUNCTION") || !strcmp(root->value,"PROCEDURE")){
-		int numOfArgs;
-		int* argsType = NULL;
-		argsType = getArgsTypeFromRoot(root->left->left->left,&numOfArgs);
-		int type = getType(root->left->left->right->right->value);
-		func * newF =mkFunc(root->left->value,argsType,type,numOfArgs);
-		global = addFuncToEnv(global,newF);
-		env* newEnv = mkEnv(type);
-		global = pushEnv(global,newEnv);
-		global = addArgsToEnv(global,root->left->left->left);
-		startSemanticalAnalysis(root->left->left->right->right->right);
-	}else if(!strcmp(root->value,"BODY")){
-		return;
-	}
-	return;
-}
+
 
 
 void exitWithError(){
@@ -662,7 +635,10 @@ int* getArgsTypeFromRoot(node* root,int* len){
 	}
 	return argsTypeList;
 }
-env* addArgsToEnv(env* env,node* root){
+env* addArgsToEnv(env* env,node* root,int numOfArgs){
+	if(numOfArgs == 0){
+		return env;
+	}
 	int type;
 	var* varT;
 	node * temp = NULL;
@@ -677,4 +653,62 @@ env* addArgsToEnv(env* env,node* root){
 		root = root->right;
 	}
 	return env;
+}
+void findCheckMain(){
+	if(global->returnType != GLOBAL){
+		printf("\nLogical Error in findCheckMain\n ");
+		exit(1);
+	}
+	func* funcs = global->funcs;
+	if(strcmp(funcs->name,"main")!=0){
+		printf("\nNo 'main' function found , last function is '%s'\n",funcs->name);
+		func* temp =  global->funcs;
+		
+		exitWithError(root);
+	}
+	if(funcs->returnType != VOIDF){
+		printf("\n'main' should not return any values\n");
+		exitWithError(root);
+	}
+	if(funcs->numOfArgs != 0){
+		printf("\n'main' should not receive any arguments\n");
+		exitWithError(root);
+	}
+
+}
+
+void startSemanticalAnalysis(node* root){
+	if(root==NULL){
+		return;
+	}
+	if(!strcmp(root->value,"CODE")){
+		global = mkEnv(GLOBAL);
+		startSemanticalAnalysis(root->left);
+		if(numOfmains>1){
+			printf("\nThere should be exact one main\n");
+			exitWithError(root);
+		}else{
+			findCheckMain();
+		}
+	}
+	else if(!strcmp(root->token,"FUNCTIONS")){
+		startSemanticalAnalysis(root->left);
+		global = popEnv(global);
+		startSemanticalAnalysis(root->right);
+	}
+	else if(!strcmp(root->value,"FUNCTION") || !strcmp(root->value,"PROCEDURE")){
+		int numOfArgs;
+		int* argsType = NULL;
+		argsType = getArgsTypeFromRoot(root->left->left->left,&numOfArgs);
+		int type = getType(root->left->left->right->right->value);
+		func * newF =mkFunc(root->left->value,argsType,type,numOfArgs);
+		global = addFuncToEnv(global,newF);
+		env* newEnv = mkEnv(type);
+		global = pushEnv(global,newEnv);
+		global = addArgsToEnv(global,root->left->left->left,numOfArgs);
+		startSemanticalAnalysis(root->left->left->right->right->right);
+	}else if(!strcmp(root->value,"BODY")){
+		return;
+	}
+	return;
 }
