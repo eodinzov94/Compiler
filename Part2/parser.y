@@ -13,13 +13,14 @@
 #define REALP  6
 #define STRING 7
 #define VOIDF  8
+#define NULLPTR 9
 #define GLOBAL -1
 typedef enum { FALSE, TRUE } bool;
 
 typedef struct node
 {
  char *value;
- char *token;
+ char *desc;
  struct node *left;
  struct node *right;
 } node;
@@ -48,9 +49,9 @@ typedef struct env {
 
 
 /*PART 1*/
-node *mknode(char* value,char *token, node *left, node *right);
+node *mknode(char* value,char *desc, node *left, node *right);
 void printTree(node *tree,int tabsNum);
-node* mkleaf(char* value,char* token);
+node* mkleaf(char* value,char* desc);
 void printToken(node *tree,int tabsNum);
 void printTabs(int tabsNum);
 void freeTree(node *tree);
@@ -67,6 +68,8 @@ env* addFuncToEnv(env* env, func* func);
 env* addVarToEnv(env* env, var* var);
 env* pushEnv(env* head, env* node);
 env* popEnv(env* head);
+int evaluateFuncCall(node*,func*,env*);
+int evalExpType(node* root, env* enviroment);
 bool findVar(var* node,char* name);
 bool findFunc(func* node,char* name);
 void freeEnvNode(env* node);
@@ -75,6 +78,13 @@ void freeVars( var* head);
 void startSemanticalAnalysis(node* root);
 int getType(char* type);
 void freeENVs(env* head);
+char* getTypeByNumber(int);
+int getTypeForPrimDec(node *root);
+void checkPrimDeclarations(node* root,int type);
+int getConcreteType(int pType);
+func* getFuncByID(env*, char*);
+bool assignmentCheck(int varType, int expType);
+int getIDVarType(env*, char*);
 void exitWithError();
 int* getArgsTypeFromRoot(node* root,int* len);
 env* addArgsToEnv(env* env,node* root,int numOfArgs);
@@ -104,8 +114,8 @@ node * root = NULL;
 %type <node> primitive_assignment index_assigment pointer_assigment func_expressions
 %type <node> loops while do_while for
 %type <node> return expression
-%type <node> statement statements condition_statement
-%type <string> unary_operator literal_val
+%type <node> statement statements condition_statement literal_val
+%type <string> unary_operator 
 
 %nonassoc IF
 %nonassoc ELSE
@@ -140,9 +150,9 @@ functions: function functions    					        {$$=mknode("","FUNCTIONS",$1,$2);}
 function:  VALTYPE ID '(' parameter_list ')' '{' body '}'   {$$=mknode("FUNCTION","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode($1,"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
 procedure: VOID ID '(' parameter_list ')' '{' body '}'      {$$=mknode("PROCEDURE","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode("VOID","",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));}
 ;
-body: function body 										{$$=mknode("","",$1,$2);} 
-| procedure body                                            {$$=mknode("","",$1,$2);}
-| var_decs body 											{$$=mknode("","",$1,$2);}
+body: function body 										{$$=mknode("","FUNCTIONS",$1,$2);} 
+| procedure body                                            {$$=mknode("","FUNCTIONS",$1,$2);}
+| var_decs body 											{$$=mknode("","VARDECS",$1,$2);}
 | statements %prec '}'									    {$$= $1;}
 | epsilon													{$$=NULL;};
 parameter_list: param ';' parameter_list  					{$$=mknode("","",$1,$3);}
@@ -153,16 +163,16 @@ id_list: ID ','  id_list 									{$$=mknode($1,"ID",NULL,$3);}
 | ID                                                        {$$=mkleaf($1,"ID");}
 ;
 /*======================================================Variable Declarations======================================================*/	                                         
-var_decs: primitive_decs								    {$$=$1;}
-| string_decs                                               {$$=$1;};
+var_decs: primitive_decs								    {$$=mknode("","PRIM_DECS",NULL,$1);}
+| string_decs                                               {$$=mknode("","STR_DECS",NULL,$1);};
 primitive_decs: primitive_dec primitive_multiple_decs       {$$=mknode("","D-RIGHT",$1,$2);}
-| primitive_dec ';'                                         {$$=$1;};
+| primitive_dec ';'                                         {$$=mknode("","",NULL,$1);};
 primitive_multiple_decs: ',' ID  primitive_multiple_decs	{$$=mknode($2,"ID",NULL,$3);} 
-| ',' ID ASS expression primitive_multiple_decs             {$$=mknode("","",mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")","")),$5);}
+| ',' ID ASS expression primitive_multiple_decs             {$$=mknode("","DEC_ASS_PRIM_NODE",mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")","")),$5);}
 | ',' ID  ';'                                               {$$=mkleaf($2,"ID");}
-| ',' ID ASS expression	';'									{$$=mknode("","",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")",""));};
-primitive_dec: VAR VALTYPE ID ASS expression                {$$=mknode("","",mknode($2,"VALTYPE",mknode("=","ASS",mkleaf($3,"ID"),$5),NULL),mkleaf(")","CLOSE_RIGHT"));}
-|VAR VALTYPE ID 											{$$=mknode($2,"VALTYPE",mkleaf($3,"ID"),NULL);}  ;
+| ',' ID ASS expression	';'									{$$=mknode("","DEC_ASS_PRIM_LEAF",mknode("=","ASS",mkleaf($2,"ID"),$4),mkleaf(")",""));};
+primitive_dec: VAR VALTYPE ID ASS expression                {$$=mknode("","DEC_ASS_PRIM",mknode($2,"",mknode("=","ASS",mkleaf($3,"ID"),$5),NULL),mkleaf(")","CLOSE_RIGHT"));}
+|VAR VALTYPE ID 											{$$=mknode($2,"DEC_PRIM",mkleaf($3,"ID"),NULL);}  ;
 string_decs: string_dec string_multiple_dec ';'             {$$=mknode("","D-RIGHT",$1,$2);}
 | string_dec ';'                                            {$$=$1;}
 ;		
@@ -176,24 +186,24 @@ string_dec: STR ID '[' expression ']' ASS STRVAL  			{$$=mknode($1,"",mknode("="
 | STR ID '[' expression ']' 								{$$=mknode($1,"",mknode($2,"ID",$4,NULL),NULL);}
 ;
 /*======================================================Statments======================================================*/
-statements: statement statements 							{$$=mknode("","",$1,$2);}
+statements: statement statements 							{$$=mknode("","STATEMENTS",$1,$2);}
 | statement 												{$$=$1;}
 ;
 statement: block 											{$$=$1;}
 | condition_statement 										{$$=$1;}
 ;
 condition_statement:call ';' 								{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
-| conditions 												{$$=mknode("","",$1,NULL);}
-| loops 													{$$=mknode("","",$1,NULL);}
-| return 													{$$=mknode("","",$1,NULL);}
+| conditions 												{$$=mknode("","CONDS",$1,NULL);}
+| loops 													{$$=mknode("","LOOPS",$1,NULL);}
+| return 													{$$=mknode("","RET",$1,NULL);}
 | assignment ';'											{$$=mknode("","RIGHT",$1,NULL);}
-| '{' statements '}' 										{$$=mknode("BLOCK","",$2,mkleaf(")",""));} 
+| '{' statements '}' 										{$$=mknode("BLOCK","STATBLOCK",$2,mkleaf(")",""));} 
 | ';' 														{$$=NULL;}
 ;
 /*======================================================Assignment======================================================*/
-assignment: primitive_assignment 							{$$=$1;}
-| index_assigment 											{$$=$1;}
-| pointer_assigment 										{$$=$1;}
+assignment: primitive_assignment 							{$$=mknode("","PRIMASS",NULL,$1);}
+| index_assigment 											{$$=mknode("","INDEXASS",NULL,$1);}
+| pointer_assigment 										{$$=mknode("","PTRASS",NULL,$1);}
 ; 
 primitive_assignment: ID ASS expression  					{$$=mknode("","LEFT",mknode($2,"ASS",mkleaf($1,"ID"),$3),mkleaf(")","CLOSE_ASS"));}
 ;
@@ -209,17 +219,17 @@ call: ID '(' func_expressions ')' 							{$$=mknode($1,"ID",$3,NULL);}
 |ID '(' ')' 												{$$=mkleaf($1,"ID");}
 ;
 func_expressions: expression ',' func_expressions 			{$$=mknode("","",$1,$3);}
-| expression 												{$$=$1;}
+| expression 												{$$=mknode("","LEFT",$1,NULL);}
 ;
 /*======================================================Conditions======================================================*/
 conditions: IF '(' expression ')' condition_statement %prec IF 
 															{$$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
 | IF '(' expression ')' '{' '}' %prec IF 					{$$=mknode("IF","",$3,mkleaf(")",""));}
-| IF '(' expression ')' '{' '}' ELSE condition_statement 	{$$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","",mknode("","RIGHT",$8,NULL),mkleaf(")","")));}
-| IF '(' expression ')' condition_statement ELSE '{' '}' 	{$$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",NULL,mkleaf(")","")));}
+| IF '(' expression ')' '{' '}' ELSE condition_statement 	{$$=mknode("","IFELSE",mknode("IF","",$3,NULL),mknode("ELSE","",mknode("","RIGHT",$8,NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE '{' '}' 	{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",NULL,mkleaf(")","")));}
 | IF '(' expression ')' condition_statement ELSE condition_statement 
-															{$$=mknode("","",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
-| IF '(' expression ')' '{' '}' ELSE '{' '}' 				{$$=mknode("","",mknode("IF","",$3,NULL),mknode("ELSE","RIGHT",NULL,mkleaf(")","")));}
+															{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
+| IF '(' expression ')' '{' '}' ELSE '{' '}' 				{$$=mknode("","IFELSE",mknode("IF","",$3,NULL),mknode("ELSE","RIGHT",NULL,mkleaf(")","")));}
 ;
 /*======================================================Loops======================================================*/
 loops: do_while 											{$$=$1;}
@@ -239,41 +249,41 @@ for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' co
 return: RETURN expression ';' 								{$$ = mknode("RETURN","",$2,mkleaf(")",""));}
 ;
 /*======================================================Expression======================================================*/
-expression: expression PLUS expression   					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}           				
-| expression MINUS expression			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}       												
-| expression MULT expression								{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression DIV expression  			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression OR expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
-| expression AND expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}   											
-| expression EQ expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}		
-| expression NOTEQ expression			 					{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
-| expression L expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
-| expression LE expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}				
-| expression GR expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}							
-| expression GRE expression									{$$=mknode("","",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+expression: expression PLUS expression   					{$$=mknode("","+",mknode($2,"OP",$1,$3),mkleaf(")",""));}           				
+| expression MINUS expression			 					{$$=mknode("","-",mknode($2,"OP",$1,$3),mkleaf(")",""));}       												
+| expression MULT expression								{$$=mknode("","*",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression DIV expression  			 					{$$=mknode("","/",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression OR expression									{$$=mknode("","||",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
+| expression AND expression									{$$=mknode("","&&",mknode($2,"OP",$1,$3),mkleaf(")",""));}   											
+| expression EQ expression									{$$=mknode("","==",mknode($2,"OP",$1,$3),mkleaf(")",""));}		
+| expression NOTEQ expression			 					{$$=mknode("","!=",mknode($2,"OP",$1,$3),mkleaf(")",""));}
+| expression L expression									{$$=mknode("","<",mknode($2,"OP",$1,$3),mkleaf(")",""));}					
+| expression LE expression									{$$=mknode("","<=",mknode($2,"OP",$1,$3),mkleaf(")",""));}				
+| expression GR expression									{$$=mknode("",">",mknode($2,"OP",$1,$3),mkleaf(")",""));}							
+| expression GRE expression									{$$=mknode("",">=",mknode($2,"OP",$1,$3),mkleaf(")",""));}
 | unary_operator expression %prec UNARY						{$$=mknode($1,"UN_OP",$2,NULL);}									
-| literal_val                   							{$$=mkleaf($1,"LIT");}
+| literal_val                   							{$$=$1;}
 | ID														{$$=mkleaf($1,"ID");}	
 | call														{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
-| ADDRS ID													{$$=mknode("ADDRESS","",mkleaf($2,"ID"),NULL);}
-| ADDRS ID '[' expression ']'								{$$=mknode("ADDRESS","",mknode($2,"",$4,NULL),NULL);}		
-| '|' ID '|'												{$$=mknode("LEN","ID",mkleaf($2,"ID"),NULL);}								
+| ADDRS ID													{$$=mknode("ADDRESS","ADDR",mkleaf($2,"ID"),NULL);}
+| ADDRS ID '[' expression ']'								{$$=mknode("ADDRESS","ADDR_INDEX",mknode($2,"",$4,NULL),NULL);}		
+| '|' ID '|'												{$$=mknode("LEN","IDLEN",mkleaf($2,"ID"),NULL);}								
 | '(' expression ')'      								    {$$=$2;}																																						
-| ID '[' expression ']'										{$$=mknode($1,"ID",$3,NULL);}
-| MULT ID													{$$=mknode($1,"UN_OP",mkleaf($2,""),NULL);}
+| ID '[' expression ']'										{$$=mknode($1,"ID_INDEX",$3,NULL);}
+| MULT ID													{$$=mknode($1,"UN_OP_PTR",mkleaf($2,""),NULL);}
 ;
 unary_operator: PLUS 										{$$=$1;}
 | MINUS 													{$$=$1;}
 | NOT 														{$$=$1;}
 ;
 /*======================================================Literal Values======================================================*/
-literal_val: BOOLVAL										{$$=$1;}									
-|CHARVAL													{$$=$1;}							
-|DECVAL														{$$=$1;}				
-|HEXVAL														{$$=$1;}				
-|REALVAL 													{$$=$1;}
-|STRVAL														{$$=$1;}							
-|PNULL														{$$=strdup("NULL");}	
+literal_val: BOOLVAL										{$$=mkleaf($1,"BOOL");}									
+|CHARVAL													{$$=mkleaf($1,"CHAR");}							
+|DECVAL														{$$=mkleaf($1,"INT");}				
+|HEXVAL														{$$=mkleaf($1,"INT");}				
+|REALVAL 													{$$=mkleaf($1,"REAL");}
+|STRVAL														{$$=mkleaf($1,"STR");}							
+|PNULL														{$$=mkleaf($1,"NULLP");}	
 ;
 epsilon: 
 ;
@@ -292,11 +302,11 @@ int yyerror(char *err){
 int yywrap(){
 	return 1;
 }
-node *mknode(char* value,char *token,node *left,node *right){
+node *mknode(char* value,char *desc,node *left,node *right){
  node *newnode = (node*)malloc(sizeof(node));
  newnode->left = left;
  newnode->right = right;
- newnode->token = strdup(token);
+ newnode->desc = strdup(desc);
  newnode->value = strdup(value);
  return newnode;
 }
@@ -305,9 +315,9 @@ void printTree(node *tree,int tabs){
 		return;
 	printToken(tree,tabs);
 	if(tree->left){
-		if(!strcmp(tree->token,"RIGHT")){
+		if(!strcmp(tree->desc,"RIGHT")){
 			printTree(tree->left,tabs+1);
-		}else if( !strcmp(tree->token,"LEFT")){
+		}else if( !strcmp(tree->desc,"LEFT")){
 			printTree(tree->left,tabs-1);
 		}
 		else if(!strcmp(tree->value,"")){
@@ -318,10 +328,10 @@ void printTree(node *tree,int tabs){
 		}	
 	}
 	if (tree->right){
-		if(!strcmp(tree->token,"ASS") || !strcmp(tree->token,"OP")){
+		if(!strcmp(tree->desc,"ASS") || !strcmp(tree->desc,"OP")){
 			printTree(tree->right,tabs+1);
 		}
-		else if(!strcmp(tree->token,"D-RIGHT")){
+		else if(!strcmp(tree->desc,"D-RIGHT")){
 			printTree(tree->right,tabs+1);
 		}
 		else {
@@ -330,15 +340,15 @@ void printTree(node *tree,int tabs){
 	}
 }
 void printToken(node *tree,int tabs){
-  if(!strcmp(tree->token, "OP") || !strcmp(tree->token, "ASS")){
+  if(!strcmp(tree->desc, "OP") || !strcmp(tree->desc, "ASS")){
 	  printTabs(tabs);
 	  printf("(%s\n", tree->value);
   }
-  else if(!strcmp(tree->token, "CLOSE_ASS")){
+  else if(!strcmp(tree->desc, "CLOSE_ASS")){
 	  printTabs(tabs-1);
 	  printf("%s\n", tree->value);
   }
-  else if(!strcmp(tree->token, "CLOSE_RIGHT")){
+  else if(!strcmp(tree->desc, "CLOSE_RIGHT")){
 	  printTabs(tabs+1);
 	  printf("%s\n", tree->value);
   }
@@ -405,8 +415,8 @@ char* mkcat(char* s1,char*s2){
 	newstr[newlen] = '\0';
 	return newstr;
 }
-node* mkleaf(char* value,char* token){
-	return mknode(value,token,NULL,NULL);
+node* mkleaf(char* value,char* desc){
+	return mknode(value,desc,NULL,NULL);
 }
 void printTabs( int tabs){
 	for( int i=tabs;i>0;i--)
@@ -421,7 +431,7 @@ void freeTree(node *tree){
 	if(tree->right){
 	 freeTree(tree->right);
 	}
-    free(tree->token);
+    free(tree->desc);
 	free(tree->value);
 	free(tree);
 }
@@ -555,6 +565,39 @@ int getType(char* type){
 		return STR;
 	}else return VOIDF;
 }
+char* getTypeByNumber(int type){
+	if(type == BOOL ){
+		return strdup("bool");
+	}else if(type == REAL ){
+		return strdup("real");
+	}else if(type == INT ){
+		return strdup("int");
+	}else if(type == CHAR ){
+		return strdup("char");
+	}
+	else if(type == INTP ){
+		return strdup("int*");
+	}else if(type == CHARP ){
+		return strdup("char*");
+	}
+	else if(type == REALP ){
+		return strdup("real*");
+	}else if(type == STRING ){
+		return strdup("string");
+	}else if(type == NULLPTR){
+		return strdup("null");
+	}
+	return strdup("Unsupported type!\n");
+}
+
+int getConcreteType(int type){
+	if(type == INTP ){
+		return INT;
+	}else if(type == CHARP){
+		return CHAR;
+	}
+	else return REAL;
+}
 void freeENVs(env* head){
 	env* temp = NULL;
 	while(head != NULL){
@@ -676,7 +719,165 @@ void findCheckMain(){
 	}
 
 }
+int evalExpType(node* root, env* enviroment){
 
+	if(!strcmp(root->desc, "UN_OP") && !strcmp(root->left->desc, "UN_OP")) {
+		printf("Unsupported operator chaining!\nCannot chain type %s and type %s", root->value, root->left->value);
+		exitWithError();
+	}
+
+	if(!strcmp(root->desc, "BOOL")) return BOOL;
+	else if(!strcmp(root->desc, "CHAR")) return CHAR;
+	else if(!strcmp(root->desc, "INT")) return INT;
+	else if(!strcmp(root->desc, "REAL")) return REAL;
+	else if(!strcmp(root->desc, "STR")) return STRING;
+	else if(!strcmp(root->desc, "NULLP")) return NULLPTR;
+
+	else if(!strcmp(root->desc, "ID")){
+		return getIDVarType(enviroment, root->value);
+	}else if(!strcmp(root->desc, "ID_INDEX")){
+		int value = getIDVarType(enviroment, root->value);
+		int leftson = evalExpType(root -> left, enviroment);
+		if(leftson != INT){
+			printf("Unsupported index value type %s for string type!\n", getTypeByNumber(leftson));
+			exitWithError();
+		}
+		else if(value != STRING){
+			printf("Unsupported index operator for type %s!\n", root->value);
+			exitWithError();
+		}
+		else{
+			return CHAR;
+		}
+	}
+	else if(!strcmp(root->desc, "UN_OP") && (!strcmp(root->value, "+") || !strcmp(root->value, "-"))) {
+		int leftson = evalExpType(root -> left, enviroment);
+		if (leftson != REAL && leftson != INT){
+			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
+			exitWithError();
+		}
+		else return leftson;
+	}else if(!strcmp(root->desc, "UN_OP") && !strcmp(root->value, "!")){
+		int leftson = evalExpType(root -> left, enviroment);
+		if (leftson != BOOL ){
+			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
+			exitWithError();
+		}
+		else return BOOL;
+	}else if(!strcmp(root->desc, "ADDR")){
+		int leftson = evalExpType(root -> left, enviroment);
+		if (leftson != CHAR && leftson != REAL && leftson != INT){
+			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
+			exitWithError();
+		}else{
+			char* ptrType= getTypeByNumber(leftson);
+			ptrType = mkcat(ptrType,"*");
+			return getType(ptrType);
+		}
+	}else if(!strcmp(root->desc, "ADDR_INDEX")){
+		int leftson = evalExpType(root -> left, enviroment);
+		int leftgrandson = evalExpType(root->left->left, enviroment);
+		if(leftson != STRING){
+			printf("Unsupported operator %s for non string type!\n", root->value);
+			exitWithError();
+		}
+		else if(leftgrandson != INT){
+			printf("Unsupported index value type %s for string type!\n", getTypeByNumber(leftgrandson));
+			exitWithError();
+		}
+		else{
+			return CHARP;
+		}
+	}
+	else if(!strcmp(root->desc, "+") || !strcmp(root->desc, "-")|| !strcmp(root->desc, "*")|| !strcmp(root->desc, "/")){
+		int leftson = evalExpType(root -> left->left, enviroment);
+		int rightson = evalExpType(root -> left->right, enviroment);
+		if ((leftson != REAL && leftson != INT) || (rightson != REAL && rightson != INT) ){
+			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
+			exitWithError();
+		}
+		else{
+			if(leftson == rightson)
+				return leftson;
+			else return REAL;
+		}
+	}else if(!strcmp(root->desc, "&&") || !strcmp(root->desc, "||")){
+		int leftson = evalExpType(root -> left->left, enviroment);
+		int rightson = evalExpType(root -> left->right, enviroment);
+		if (leftson != BOOL || rightson != BOOL ){
+			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
+			exitWithError();
+		}
+		else return BOOL;
+	}else if(!strcmp(root->desc, "<") || !strcmp(root->desc, ">")|| !strcmp(root->desc, "<=")|| !strcmp(root->desc, ">=")){
+		int leftson = evalExpType(root -> left->left, enviroment);
+		int rightson = evalExpType(root -> left->right, enviroment);
+		if ((leftson != REAL && leftson != INT) || (rightson != REAL && rightson != INT) ){
+			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
+			exitWithError();
+		}
+		else return BOOL;
+	}else if(!strcmp(root->desc, "!=") || !strcmp(root->desc, "==")){
+		int leftson = evalExpType(root -> left->left, enviroment);
+		int rightson = evalExpType(root -> left->right, enviroment);
+		if (leftson != rightson || leftson == STRING){
+			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
+			exitWithError();
+		}
+		else return BOOL;
+	}else if(!strcmp(root->desc, "IDLEN")){
+		int leftson = evalExpType(root -> left, enviroment);
+		if ( leftson != STRING){
+			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
+			exitWithError();
+		}
+		else return INT;
+	}else if(!strcmp(root->desc, "UN_OP_PTR")){
+		int leftson = evalExpType(root -> left, enviroment);
+		if ( leftson != INTP && leftson != CHARP && leftson != REALP ){
+			printf("Attempted pointer assignment for unsupported type %s!\nCannot assign operator to %s",getTypeByNumber(leftson), root->value);
+			exitWithError();
+		}
+		else{
+			return getConcreteType(leftson);
+		}
+	}else if(!strcmp(root->value, "FUNC_CALL")){
+		func* function = getFuncByID(enviroment,root->left->value);
+		if(function->returnType == VOID){
+			printf("\n Assignment type mismatch: function '%s' has return type VOID", root->left->value);
+			exitWithError();
+		}
+		return evaluateFuncCall(root->left->left, function,enviroment);
+	}
+}
+
+int getIDVarType(env* enviroment, char* name){
+	if(enviroment->returnType == GLOBAL){
+		printf("Undeclared ID usage!\nVariable %s does not exist!\n", name);
+		exitWithError();
+	}
+	var* vars = enviroment->vars;
+	while(vars){
+		if(!strcmp(vars->name, name))
+			return vars->type;
+		vars = vars->next;
+	}
+	getIDVarType(enviroment->next,name);
+}
+
+func* getFuncByID(env* enviroment, char* name){
+	if(!enviroment){
+		printf("Undeclared ID usage!\nFunction %s does not exist!\n", name);
+		exitWithError();
+	}
+	func* funcs = enviroment->funcs;
+	while(funcs){
+		if(!strcmp(funcs->name, name))
+			return funcs;
+		funcs = funcs->next;
+	}
+	getFuncByID(enviroment->next,name);
+}
 void startSemanticalAnalysis(node* root){
 	if(root==NULL){
 		return;
@@ -691,7 +892,7 @@ void startSemanticalAnalysis(node* root){
 			findCheckMain();
 		}
 	}
-	else if(!strcmp(root->token,"FUNCTIONS")){
+	else if(!strcmp(root->desc,"FUNCTIONS")){
 		startSemanticalAnalysis(root->left);
 		global = popEnv(global);
 		startSemanticalAnalysis(root->right);
@@ -708,7 +909,120 @@ void startSemanticalAnalysis(node* root){
 		global = addArgsToEnv(global,root->left->left->left,numOfArgs);
 		startSemanticalAnalysis(root->left->left->right->right->right);
 	}else if(!strcmp(root->value,"BODY")){
+		startSemanticalAnalysis(root->left);
+		startSemanticalAnalysis(root->right);
+	}
+	else if(!strcmp(root->desc,"VARDECS")){
+	startSemanticalAnalysis(root->left);
+	startSemanticalAnalysis(root->right);
+	} else if(!strcmp(root->desc,"PRIM_DECS")){
+		if(root->right->left){
+			checkPrimDeclarations(root->right->left,getTypeForPrimDec(root->right));
+		}
+		checkPrimDeclarations(root->right->right,getTypeForPrimDec(root->right));
+	}
+	
+	return;
+}
+int getTypeForPrimDec(node *root){
+	if(root->right){
+		if(!strcmp(root->right->desc,"DEC_PRIM") ){
+		return getType(root->right->value);
+		}else if(!strcmp(root->right->desc,"DEC_ASS_PRIM")){
+		return getType(root->right->left->value);
+		}
+	}
+	if(root->left){
+		if(!strcmp(root->left->desc,"DEC_PRIM")){
+			return getType(root->left->value);
+		}else if(!strcmp(root->left->desc,"DEC_ASS_PRIM")){
+			return getType(root->left->left->value);
+		}
+	}
+	
+}
+
+
+void checkPrimDeclarations(node* root,int type){
+	if(!root){
 		return;
 	}
-	return;
+	if(!strcmp(root->desc,"DEC_PRIM")){
+		global = addVarToEnv(global,mkVar(root->left->value,type));
+	}
+	else if(!strcmp(root->desc,"DEC_ASS_PRIM")){
+
+		int expType = evalExpType(root->left->left->right,global);
+		if(assignmentCheck(type,expType)){
+			global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
+		}
+		else{
+			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value,getTypeByNumber(type) );
+			exitWithError();
+		}
+	}else if(!strcmp(root->desc,"ID")){
+		global = addVarToEnv(global,mkVar(root->value,type));
+		checkPrimDeclarations(root->right,type);
+	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_NODE")){
+		int expType = evalExpType(root->left->left->right,global);
+		if(assignmentCheck(type,expType)){
+			global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
+		}
+		else{
+			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value ,getTypeByNumber(type));
+			exitWithError();
+		}
+		checkPrimDeclarations(root->right,type);
+	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_LEAF")){
+		int expType = evalExpType(root->left->right,global);
+		if(assignmentCheck(type,expType)){
+			global = addVarToEnv(global,mkVar(root->left->left->value,type));
+		}
+		else{
+			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->value,getTypeByNumber(type) );
+			exitWithError();
+		}
+	}
+}
+int evaluateFuncCall(node* root,func* function, env* enviroment){
+	int i = 0;
+	node* exp = NULL;
+	while(root){
+		exp = root->left;
+		if(i<function->numOfArgs){
+			if(!assignmentCheck(function->argsType[i],evalExpType(exp,enviroment))){
+				printf("\n Passing wrong type of arguments in function call '%s'\n",function->name  );
+				exitWithError();
+			}
+		}else{
+			printf("\n Passing wrong amount of arguments in function call '%s'\n",function->name  );
+			exitWithError();
+		}
+			
+		i++;
+		root= root->right;
+	}
+	if(i==function->numOfArgs){
+		return function->returnType;
+	}else{
+		printf("\n Passing wrong amount of arguments in function call '%s'\n",function->name  );
+		exitWithError();
+	}
+
+}
+bool assignmentCheck(int varType, int expType){
+	if(varType==expType){
+		return TRUE;
+	}
+	else if(varType==REAL && expType == INT){
+		return TRUE;
+	}else if(varType==REALP && expType == NULLPTR){
+		return TRUE;
+	}else if(varType==INTP && expType == NULLPTR){
+		return TRUE;
+	}else if(varType==CHARP && expType == NULLPTR){
+		return TRUE;
+	}else{
+		return FALSE;
+	}
 }

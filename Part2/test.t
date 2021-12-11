@@ -1,7 +1,11 @@
-void foo (int x,y,z;real xz){
-  
+
+int koo(int y){}
+void foo (){
+  int goo(real* x;int y){
+      int moo(){}
+      var int z = koo(moo());
+  }   
+  var real* y;
 }
-void foo (int x,y,z;real xz){
-  
-}
+
 void main (){}
