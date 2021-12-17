@@ -15,6 +15,7 @@
 #define VOIDF  8
 #define NULLPTR 9
 #define GLOBAL -1
+#define BLOCK 10
 typedef enum { FALSE, TRUE } bool;
 
 typedef struct node
@@ -70,7 +71,8 @@ env* pushEnv(env* head, env* node);
 env* popEnv(env* head);
 int evaluateFuncCall(node*,func*,env*);
 int evalExpType(node* root, env* enviroment);
-bool findVar(var* node,char* name);
+var* findVar(var* node,char* name);
+var* findVarForAssigment (env*,char* name);
 bool findFunc(func* node,char* name);
 void freeEnvNode(env* node);
 void freeFuncs( func* head);
@@ -78,11 +80,16 @@ void freeVars( var* head);
 void startSemanticalAnalysis(node* root);
 int getType(char* type);
 void freeENVs(env* head);
+void checkStrDeclarations(node * root);
 char* getTypeByNumber(int);
 int getTypeForPrimDec(node *root);
 void checkPrimDeclarations(node* root,int type);
 int getConcreteType(int pType);
 func* getFuncByID(env*, char*);
+void checkAssigment(node* root);
+void checkLoops(node* root);
+void checkConds(node* root);
+void checkConditionStatement(node* root);
 bool assignmentCheck(int varType, int expType);
 int getIDVarType(env*, char*);
 void exitWithError();
@@ -113,8 +120,9 @@ node * root = NULL;
 %type <node> assignment call conditions block
 %type <node> primitive_assignment index_assigment pointer_assigment func_expressions
 %type <node> loops while do_while for
-%type <node> return expression
-%type <node> statement statements condition_statement literal_val
+%type <node> return expression decs_with_stats 
+%type <node> statement statements condition_statement literal_val integer
+
 %type <string> unary_operator 
 
 %nonassoc IF
@@ -152,9 +160,9 @@ procedure: VOID ID '(' parameter_list ')' '{' body '}'      {$$=mknode("PROCEDUR
 ;
 body: function body 										{$$=mknode("","FUNCTIONS",$1,$2);} 
 | procedure body                                            {$$=mknode("","FUNCTIONS",$1,$2);}
-| var_decs body 											{$$=mknode("","VARDECS",$1,$2);}
-| statements %prec '}'									    {$$= $1;}
-| epsilon													{$$=NULL;};
+| var_decs body												{$$=mknode("","VARDECS",$1,$2);}
+| statements 												{$$=$1;}
+;
 parameter_list: param ';' parameter_list  					{$$=mknode("","",$1,$3);}
 | param	                                                    {$$=mknode("","",$1,NULL);}
 | epsilon													{$$=mkleaf("(NO_ARGS)","");};
@@ -162,6 +170,10 @@ param: VALTYPE id_list										{$$=mknode(mkcat("(",$1),"VALTYPE",$2,mkleaf(")"
 id_list: ID ','  id_list 									{$$=mknode($1,"ID",NULL,$3);}                                          
 | ID                                                        {$$=mkleaf($1,"ID");}
 ;
+decs_with_stats: var_decs decs_with_stats 					{$$=mknode("","VAR_DECS",$1,$2);}
+| statements												{$$=$1;}
+;
+
 /*======================================================Variable Declarations======================================================*/	                                         
 var_decs: primitive_decs								    {$$=mknode("","PRIM_DECS",NULL,$1);}
 | string_decs                                               {$$=mknode("","STR_DECS",NULL,$1);};
@@ -176,43 +188,40 @@ primitive_dec: VAR VALTYPE ID ASS expression                {$$=mknode("","DEC_A
 string_decs: string_dec string_multiple_dec ';'             {$$=mknode("","D-RIGHT",$1,$2);}
 | string_dec ';'                                            {$$=$1;}
 ;		
-string_multiple_dec: ',' ID '[' expression ']' ASS STRVAL string_multiple_dec   
-															{$$=mknode("","",mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","")),$8);}  
-|',' ID '[' expression ']'  string_multiple_dec  			{$$=mknode("","",mknode($2,"ID",$4,NULL),$6);} 
-|',' ID '[' expression ']'    								{$$=mknode("","",mknode($2,"ID",$4,NULL),NULL);}
-|',' ID '[' expression ']' ASS STRVAL 						{$$=mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")",""));}
+string_multiple_dec: ',' ID '[' integer ']' ASS STRVAL string_multiple_dec   
+															{$$=mknode("","STR_3L",mknode("","",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","")),$8);}  
+|',' ID '[' integer ']'  string_multiple_dec  			{$$=mknode("","STR_1L",mknode($2,"ID",$4,NULL),$6);} 
+|',' ID '[' integer ']'    								{$$=mknode("","STR_1L",mknode($2,"ID",$4,NULL),NULL);}
+|',' ID '[' integer ']' ASS STRVAL 						{$$=mknode("","STR_2L",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")",""));}
 ;
-string_dec: STR ID '[' expression ']' ASS STRVAL  			{$$=mknode($1,"",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","CLOSE_RIGHT"));}
-| STR ID '[' expression ']' 								{$$=mknode($1,"",mknode($2,"ID",$4,NULL),NULL);}
+string_dec: STR ID '[' integer ']' ASS STRVAL  			{$$=mknode($1,"STR_2L",mknode("=","ASS",mknode($2,"ID",$4,NULL),mkleaf($7,"")),mkleaf(")","CLOSE_RIGHT"));}
+| STR ID '[' integer ']' 								{$$=mknode($1,"STR_1L",mknode($2,"ID",$4,NULL),NULL);}
 ;
-/*======================================================Statments======================================================*/
+/*======================================================Statements======================================================*/
 statements: statement statements 							{$$=mknode("","STATEMENTS",$1,$2);}
-| statement 												{$$=$1;}
+| epsilon													{$$=NULL;}
 ;
 statement: block 											{$$=$1;}
-| condition_statement 										{$$=$1;}
+| condition_statement 										{$$=mknode("","COND_STAT",NULL,$1);}
 ;
-condition_statement:call ';' 								{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
+condition_statement:call ';' 								{$$=mknode("FUNC_CALL","FUNC_CALL",$1,mkleaf(")",""));} 
 | conditions 												{$$=mknode("","CONDS",$1,NULL);}
 | loops 													{$$=mknode("","LOOPS",$1,NULL);}
 | return 													{$$=mknode("","RET",$1,NULL);}
 | assignment ';'											{$$=mknode("","RIGHT",$1,NULL);}
-| '{' statements '}' 										{$$=mknode("BLOCK","STATBLOCK",$2,mkleaf(")",""));} 
-| ';' 														{$$=NULL;}
 ;
-/*======================================================Assignment======================================================*/
 assignment: primitive_assignment 							{$$=mknode("","PRIMASS",NULL,$1);}
 | index_assigment 											{$$=mknode("","INDEXASS",NULL,$1);}
 | pointer_assigment 										{$$=mknode("","PTRASS",NULL,$1);}
 ; 
 primitive_assignment: ID ASS expression  					{$$=mknode("","LEFT",mknode($2,"ASS",mkleaf($1,"ID"),$3),mkleaf(")","CLOSE_ASS"));}
 ;
-index_assigment: ID '[' expression ']' ASS expression  		{$$=mknode("","LEFT",mknode($5,"ASS",mknode($1,"",$3,NULL),$6),mkleaf(")","CLOSE_ASS"));}
+index_assigment: ID '[' expression ']' ASS expression  		{$$=mknode("","LEFT",mknode($5,"ASS",mknode($1,"ID",$3,NULL),$6),mkleaf(")","CLOSE_ASS"));}
 ;
 pointer_assigment: MULT ID ASS expression  					{$$=mknode("","LEFT",mknode($3,"ASS",mknode("PTR","",mkleaf($2,"ID"),NULL),$4),mkleaf(")","CLOSE_ASS"));}
 ;
 /*======================================================Code Block======================================================*/
-block: '{' body '}' 										{$$=mknode("BLOCK","",$2,mkleaf(")",""));}
+block: '{' body '}' 										{$$=mknode("BLOCK","ENV_BLOCK",$2,mkleaf(")",""));}
 ;
 /*======================================================Procedure/Function Calls======================================================*/
 call: ID '(' func_expressions ')' 							{$$=mknode($1,"ID",$3,NULL);}
@@ -222,14 +231,12 @@ func_expressions: expression ',' func_expressions 			{$$=mknode("","",$1,$3);}
 | expression 												{$$=mknode("","LEFT",$1,NULL);}
 ;
 /*======================================================Conditions======================================================*/
-conditions: IF '(' expression ')' condition_statement %prec IF 
-															{$$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| IF '(' expression ')' '{' '}' %prec IF 					{$$=mknode("IF","",$3,mkleaf(")",""));}
-| IF '(' expression ')' '{' '}' ELSE condition_statement 	{$$=mknode("","IFELSE",mknode("IF","",$3,NULL),mknode("ELSE","",mknode("","RIGHT",$8,NULL),mkleaf(")","")));}
-| IF '(' expression ')' condition_statement ELSE '{' '}' 	{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",NULL,mkleaf(")","")));}
-| IF '(' expression ')' condition_statement ELSE condition_statement 
-															{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
-| IF '(' expression ')' '{' '}' ELSE '{' '}' 				{$$=mknode("","IFELSE",mknode("IF","",$3,NULL),mknode("ELSE","RIGHT",NULL,mkleaf(")","")));}
+conditions: IF '(' expression ')' condition_statement %prec IF              		{$$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' %prec IF 							{$$=mknode("IF","",$3,mknode("","RIGHT",$6,mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' ELSE condition_statement 			{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$6,NULL)),mknode("ELSE","",mknode("","",$9,NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE '{' decs_with_stats '}' 			{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$8,NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE condition_statement        		{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' ELSE '{' decs_with_stats '}' 		{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$6,NULL)),mknode("ELSE","",mknode("","",$10,NULL),mkleaf(")","")));}
 ;
 /*======================================================Loops======================================================*/
 loops: do_while 											{$$=$1;}
@@ -237,13 +244,13 @@ loops: do_while 											{$$=$1;}
 | while 													{$$=$1;}
 ;
 while: WHILE '(' expression ')' condition_statement 		{$$=mknode("WHILE","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| WHILE '(' expression ')' '{' '}' 							{$$=mknode("WHILE","",$3,mkleaf(")",""));}
+| WHILE '(' expression ')' '{' decs_with_stats '}' 							{$$=mknode("WHILE","",$3,mknode("","RIGHT",$6,mkleaf(")","")));}
 ;
-do_while: DO '{' statements '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",$3,mknode("WHILE-COND","",$7,mkleaf(")","")));};
+do_while: DO '{' decs_with_stats '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",$3,mknode("WHILE-COND","",$7,mkleaf(")","")));};
 for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statement 
 															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$9))),mkleaf(")",""));}
-| FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' '}'
-															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,NULL))),NULL);}
+| FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' decs_with_stats '}'
+															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$10))),mkleaf(")",""));}
 ;
 /*======================================================Return======================================================*/
 return: RETURN expression ';' 								{$$ = mknode("RETURN","",$2,mkleaf(")",""));}
@@ -279,12 +286,13 @@ unary_operator: PLUS 										{$$=$1;}
 /*======================================================Literal Values======================================================*/
 literal_val: BOOLVAL										{$$=mkleaf($1,"BOOL");}									
 |CHARVAL													{$$=mkleaf($1,"CHAR");}							
-|DECVAL														{$$=mkleaf($1,"INT");}				
-|HEXVAL														{$$=mkleaf($1,"INT");}				
+|integer 			                                        {$$=$1;}
 |REALVAL 													{$$=mkleaf($1,"REAL");}
 |STRVAL														{$$=mkleaf($1,"STR");}							
-|PNULL														{$$=mkleaf($1,"NULLP");}	
+|PNULL														{$$=mkleaf("null_ptr","NULLP");}	
 ;
+integer: DECVAL                                            {$$=mkleaf($1,"INT");}
+|HEXVAL                                                    {$$=mkleaf($1,"INT");}
 epsilon: 
 ;
 %%
@@ -596,7 +604,12 @@ int getConcreteType(int type){
 	}else if(type == CHARP){
 		return CHAR;
 	}
-	else return REAL;
+	else if(type ==REALP){
+		return REAL;
+	}else{
+		printf("/nLogical error inside getConcreteType /n");
+		exitWithError();
+	}
 }
 void freeENVs(env* head){
 	env* temp = NULL;
@@ -606,18 +619,18 @@ void freeENVs(env* head){
 		freeEnvNode(temp);
 	}
 }
-bool findVar(var* head,char* name){
+var* findVar(var* head,char* name){
 	if(head == NULL)
 	{
-		return FALSE;
+		return NULL;
 	}
 	while(head){
 		if(!strcmp(head->name,name)){
-			return TRUE;
+			return head;
 		}
 		head = head->next;
 	}
-	return FALSE;
+	return NULL;
 }
 bool findFunc(func* head,char* name){
 	if(head == NULL)
@@ -878,52 +891,7 @@ func* getFuncByID(env* enviroment, char* name){
 	}
 	getFuncByID(enviroment->next,name);
 }
-void startSemanticalAnalysis(node* root){
-	if(root==NULL){
-		return;
-	}
-	if(!strcmp(root->value,"CODE")){
-		global = mkEnv(GLOBAL);
-		startSemanticalAnalysis(root->left);
-		if(numOfmains>1){
-			printf("\nThere should be exact one main\n");
-			exitWithError(root);
-		}else{
-			findCheckMain();
-		}
-	}
-	else if(!strcmp(root->desc,"FUNCTIONS")){
-		startSemanticalAnalysis(root->left);
-		global = popEnv(global);
-		startSemanticalAnalysis(root->right);
-	}
-	else if(!strcmp(root->value,"FUNCTION") || !strcmp(root->value,"PROCEDURE")){
-		int numOfArgs;
-		int* argsType = NULL;
-		argsType = getArgsTypeFromRoot(root->left->left->left,&numOfArgs);
-		int type = getType(root->left->left->right->right->value);
-		func * newF =mkFunc(root->left->value,argsType,type,numOfArgs);
-		global = addFuncToEnv(global,newF);
-		env* newEnv = mkEnv(type);
-		global = pushEnv(global,newEnv);
-		global = addArgsToEnv(global,root->left->left->left,numOfArgs);
-		startSemanticalAnalysis(root->left->left->right->right->right);
-	}else if(!strcmp(root->value,"BODY")){
-		startSemanticalAnalysis(root->left);
-		startSemanticalAnalysis(root->right);
-	}
-	else if(!strcmp(root->desc,"VARDECS")){
-	startSemanticalAnalysis(root->left);
-	startSemanticalAnalysis(root->right);
-	} else if(!strcmp(root->desc,"PRIM_DECS")){
-		if(root->right->left){
-			checkPrimDeclarations(root->right->left,getTypeForPrimDec(root->right));
-		}
-		checkPrimDeclarations(root->right->right,getTypeForPrimDec(root->right));
-	}
-	
-	return;
-}
+
 int getTypeForPrimDec(node *root){
 	if(root->right){
 		if(!strcmp(root->right->desc,"DEC_PRIM") ){
@@ -1025,4 +993,173 @@ bool assignmentCheck(int varType, int expType){
 	}else{
 		return FALSE;
 	}
+}
+void checkStrDeclarations(node * root){
+	if(!root){
+		return;
+	}
+	if(!strcmp(root->desc,"STR_1L")){
+		global = addVarToEnv(global,mkVar(root->left->value,STRING));
+	}else if(!strcmp(root->desc,"STR_2L")){
+		global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
+	}else if(!strcmp(root->desc,"STR_3L")){
+		global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
+	}else if(!strcmp(root->desc,"D-RIGHT")){
+		checkStrDeclarations(root->left);
+	}else if(!strcmp(root->value,")")){
+		return;
+	}
+	else{
+		printf("\nLogical Error inside checkStrDeclarations\n" );
+		exitWithError();
+	}	
+	checkStrDeclarations(root->right);	
+
+	
+}
+void startSemanticalAnalysis(node* root){
+	if(root==NULL){
+		return;
+	}
+	if(!strcmp(root->value,"CODE")){
+		global = mkEnv(GLOBAL);
+		startSemanticalAnalysis(root->left);
+		if(numOfmains>1){
+			printf("\nThere should be exact one main\n");
+			exitWithError(root);
+		}else{
+			findCheckMain();
+		}
+	}
+	else if(!strcmp(root->desc,"FUNCTIONS")){
+		startSemanticalAnalysis(root->left);
+		global = popEnv(global);
+		startSemanticalAnalysis(root->right);
+	}
+	else if(!strcmp(root->value,"FUNCTION") || !strcmp(root->value,"PROCEDURE")){
+		int numOfArgs;
+		int* argsType = NULL;
+		argsType = getArgsTypeFromRoot(root->left->left->left,&numOfArgs);
+		int type = getType(root->left->left->right->right->value);
+		func * newF =mkFunc(root->left->value,argsType,type,numOfArgs);
+		global = addFuncToEnv(global,newF);
+		env* newEnv = mkEnv(type);
+		global = pushEnv(global,newEnv);
+		global = addArgsToEnv(global,root->left->left->left,numOfArgs);
+		startSemanticalAnalysis(root->left->left->right->right->right);
+	}else if(!strcmp(root->value,"BODY")){
+		startSemanticalAnalysis(root->left);
+		startSemanticalAnalysis(root->right);
+	}
+	else if(!strcmp(root->desc,"VARDECS")){
+	startSemanticalAnalysis(root->left);
+	startSemanticalAnalysis(root->right);
+	} else if(!strcmp(root->desc,"PRIM_DECS")){
+		if(root->right->left){
+			checkPrimDeclarations(root->right->left,getTypeForPrimDec(root->right));
+		}
+		checkPrimDeclarations(root->right->right,getTypeForPrimDec(root->right));
+	} else if(!strcmp(root->desc,"STR_DECS")){
+		checkStrDeclarations(root->right);
+	}else if(!strcmp(root->desc,"STATEMENTS")){
+		startSemanticalAnalysis(root->left);
+		startSemanticalAnalysis(root->right);
+	}else if(!strcmp(root->desc,"ENV_BLOCK")){
+		global = pushEnv(global,mkEnv(BLOCK));
+		startSemanticalAnalysis(root->left);
+		global = popEnv(global);
+	}else if(!strcmp(root->desc,"COND_STAT")){
+		checkConditionStatement(root->right);
+	}else{
+	
+	}
+	return;
+}
+void checkConditionStatement(node* root){
+	if(!strcmp(root->desc,"FUNC_CALL")){
+		func* function = getFuncByID(global,root->left->value);
+		evaluateFuncCall(root->left->left,function, global);
+	} else if(!strcmp(root->desc,"CONDS")){
+		//checkConds(root);
+	}else if(!strcmp(root->desc,"LOOPS")){
+		//checkLoops(root);
+	}else if(!strcmp(root->desc,"RET")){
+		printf("retType:%d",global->returnType);
+		if(global->returnType==BLOCK){
+			printf("\nReturn statement should not appear outside of function block\n" );
+			exitWithError();
+		}else if(global->returnType==VOIDF){
+			printf("\nProcedure should not return any value!\n" );
+			exitWithError();
+		}
+		int type = evalExpType(root->left->left,global);
+		if(type!= global->returnType){
+			printf("\nFunction should return type: %s instead type:%s \n",getTypeByNumber(global->returnType),getTypeByNumber(type));
+			exitWithError();
+		}
+	}else if(!strcmp(root->desc,"RIGHT")){
+		checkAssigment(root->left);
+	}else{
+		printf("\nLogical Error inside checkConditionStatement\n" );
+		exitWithError();
+	}
+
+}
+var* findVarForAssigment (env* enviroment,char* name){
+	var* variable = NULL;
+	while(enviroment->returnType != GLOBAL){
+		variable = findVar(enviroment->vars,name);
+		if(variable){
+			return variable;
+		}else{
+			enviroment = enviroment->next;
+		}
+	}
+	printf("\nVariable '%s' is undeclared \n",name );
+	exitWithError();
+}
+void checkAssigment(node *root){
+	if(!root){
+		return;
+	}
+	if(!strcmp(root->desc,"PRIMASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
+		int expType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(var_ass->type,expType)){
+			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(var_ass->type),getTypeByNumber(expType),var_ass->name,getTypeByNumber(var_ass->type));
+			exitWithError();
+		}
+	}
+	else if(!strcmp(root->desc,"INDEXASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
+		int indexExpType = evalExpType(root->right->left->left->left,global);
+		if(indexExpType != INT){
+			printf("\n Index expression type is %s,but should be INT (in VAR : %s)\n",getTypeByNumber(indexExpType),var_ass->name);
+			exitWithError();
+		}
+		int assExpType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(CHAR,assExpType)){
+			printf("\n Assignment type mismatch for STRING[INDEX], expected CHAR but received %s\n",getTypeByNumber(assExpType));
+			exitWithError();
+		}
+	}
+	else if(!strcmp(root->desc,"PTRASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->left->value);
+		int conreteType = getConcreteType(var_ass->type);
+		int expType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(conreteType,expType)){
+			printf("\n Assignment type mismatch for *ID, expected %s but received %s\n",getTypeByNumber(conreteType),getTypeByNumber(expType));
+			exitWithError();
+		}
+	}
+	else{
+		printf("\nLogical Error inside checkAssigment\n" );
+		exitWithError();
+	}
+}
+void checkLoops(node* root){
+
+}
+void checkConds(node* root){
+
 }
