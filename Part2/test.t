@@ -1,11 +1,14 @@
-
-int koo(int y){}
-void foo (){
-  int goo(real* x;int y){
-      int moo(){}
-      var int z = koo(moo());
-  }   
-  var real* y;
+void foo(){
+    var int x,y,z=5;
+    string str[50]="22";
+    var int* px = null;
+    var char c = 'a';
+     var real* r;
+    *px = z;
+    px = &y;
+    r = &z;
+    
 }
+void main(){
 
-void main (){}
+}
