@@ -1,14 +1,18 @@
-void foo(){
-    var int x,y,z=5;
-    string str[50]="22";
-    var int* px = null;
-    var char c = 'a';
-     var real* r;
-    *px = z;
-    px = &y;
-    r = &z;
-    
+/*string test(int x){
+	return 'str';
+}*/
+int foo(){
+	var real w,z;
+	var bool b;
+	string str[100];
+	if(b){
+		return 5;
+	}else{return 7;}
+	return 8;
 }
 void main(){
 
+var int x,y;
+	
+	
 }

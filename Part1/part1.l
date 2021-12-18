@@ -45,7 +45,7 @@
 "&"                                                             {yylval.string = strdup(yytext); return ADDRS;} 
 "="                                                             {yylval.string = strdup(yytext); return ASS;}
  /*LITERAL VALUES*/
-"true" | "false"												{yylval.string = strdup(yytext); return BOOLVAL;}
+"true"|"false"												{yylval.string = strdup(yytext); return BOOLVAL;}
 '[^\']'                                                         {yylval.string = strdup(yytext); return CHARVAL;}
 0|[1-9][0-9]*													{yylval.string = strdup(yytext); return DECVAL;}
 0[xX][0-9A-F]+													{yylval.string = strdup(yytext); return HEXVAL;}

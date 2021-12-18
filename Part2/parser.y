@@ -41,6 +41,7 @@ typedef struct var {
 }var;
 
 typedef struct env {
+	bool isInner;
 	struct func *funcs;
 	struct var *vars;
 	int returnType;
@@ -67,6 +68,7 @@ var* addVar(var* head, var* node);
 env* mkEnv(int returnType);
 env* addFuncToEnv(env* env, func* func);
 env* addVarToEnv(env* env, var* var);
+env* addVarToInnerEnv(env* env, var* var);
 env* pushEnv(env* head, env* node);
 env* popEnv(env* head);
 int evaluateFuncCall(node*,func*,env*);
@@ -80,19 +82,21 @@ void freeVars( var* head);
 void startSemanticalAnalysis(node* root);
 int getType(char* type);
 void freeENVs(env* head);
-void checkStrDeclarations(node * root);
+void checkStrDeclarations(node * root,bool inner);
 char* getTypeByNumber(int);
 int getTypeForPrimDec(node *root);
-void checkPrimDeclarations(node* root,int type);
+void checkPrimDeclarations(node* root,int type,bool inner);
 int getConcreteType(int pType);
 func* getFuncByID(env*, char*);
 void checkAssigment(node* root);
 void checkLoops(node* root);
 void checkConds(node* root);
 void checkConditionStatement(node* root);
+void checkVarDecs(node* root, bool inner);
 bool assignmentCheck(int varType, int expType);
 int getIDVarType(env*, char*);
 void exitWithError();
+void hasReturn(node* root);
 int* getArgsTypeFromRoot(node* root,int* len);
 env* addArgsToEnv(env* env,node* root,int numOfArgs);
 void findCheckMain();
@@ -127,9 +131,8 @@ node * root = NULL;
 
 %nonassoc IF
 %nonassoc ELSE
-%nonassoc '{'
 
-%right '}'
+
 %right ADDRS
 %left ASS
 %left AND
@@ -145,7 +148,7 @@ node * root = NULL;
 /*#################################################################RULES###########################################################################*/
 %%
 /*======================================================Start Program======================================================*/
-program: code							                    {root=$1;startSemanticalAnalysis($1);printTree($1,0);freeTree($1);}
+program: code							                    {root=$1;startSemanticalAnalysis($1);printTree($1,0);freeTree($1);freeENVs(global);getchar();}
 ;
 code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")",""));}
 ;
@@ -170,7 +173,7 @@ param: VALTYPE id_list										{$$=mknode(mkcat("(",$1),"VALTYPE",$2,mkleaf(")"
 id_list: ID ','  id_list 									{$$=mknode($1,"ID",NULL,$3);}                                          
 | ID                                                        {$$=mkleaf($1,"ID");}
 ;
-decs_with_stats: var_decs decs_with_stats 					{$$=mknode("","VAR_DECS",$1,$2);}
+decs_with_stats: var_decs decs_with_stats 					{$$=mknode("","VARDECS",$1,$2);}
 | statements												{$$=$1;}
 ;
 
@@ -231,26 +234,26 @@ func_expressions: expression ',' func_expressions 			{$$=mknode("","",$1,$3);}
 | expression 												{$$=mknode("","LEFT",$1,NULL);}
 ;
 /*======================================================Conditions======================================================*/
-conditions: IF '(' expression ')' condition_statement %prec IF              		{$$=mknode("IF","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| IF '(' expression ')' '{' decs_with_stats '}' %prec IF 							{$$=mknode("IF","",$3,mknode("","RIGHT",$6,mkleaf(")","")));}
-| IF '(' expression ')' '{' decs_with_stats '}' ELSE condition_statement 			{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$6,NULL)),mknode("ELSE","",mknode("","",$9,NULL),mkleaf(")","")));}
-| IF '(' expression ')' condition_statement ELSE '{' decs_with_stats '}' 			{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$8,NULL),mkleaf(")","")));}
-| IF '(' expression ')' condition_statement ELSE condition_statement        		{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$5,NULL)),mknode("ELSE","",mknode("","",$7,NULL),mkleaf(")","")));}
-| IF '(' expression ')' '{' decs_with_stats '}' ELSE '{' decs_with_stats '}' 		{$$=mknode("","IFELSE",mknode("IF","",$3,mknode("","RIGHT",$6,NULL)),mknode("ELSE","",mknode("","",$10,NULL),mkleaf(")","")));}
+conditions: IF '(' expression ')' condition_statement %prec IF              		{$$=mknode("IF","IF",$3,mknode("","RIGHT",mknode("","COND_STAT",NULL,$5),mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' %prec IF 							{$$=mknode("IF","IF",$3,mknode("","RIGHT",mknode("","INNER_ENV",NULL,$6),mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' ELSE condition_statement 			{$$=mknode("","IFELSE",mknode("IF","IF",$3,mknode("","RIGHT",mknode("","INNER_ENV",NULL,$6),NULL)),mknode("ELSE","ELSE",mknode("","",mknode("","COND_STAT",NULL,$9),NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE '{' decs_with_stats '}' 			{$$=mknode("","IFELSE",mknode("IF","IF",$3,mknode("","RIGHT",mknode("","COND_STAT",NULL,$5),NULL)),mknode("ELSE","ELSE",mknode("","",mknode("","INNER_ENV",NULL,$8),NULL),mkleaf(")","")));}
+| IF '(' expression ')' condition_statement ELSE condition_statement        		{$$=mknode("","IFELSE",mknode("IF","IF",$3,mknode("","RIGHT",mknode("","COND_STAT",NULL,$5),NULL)),mknode("ELSE","ELSE",mknode("","",mknode("","COND_STAT",NULL,$7),NULL),mkleaf(")","")));}
+| IF '(' expression ')' '{' decs_with_stats '}' ELSE '{' decs_with_stats '}' 		{$$=mknode("","IFELSE",mknode("IF","IF",$3,mknode("","RIGHT",mknode("","INNER_ENV",NULL,$6),NULL)),mknode("ELSE","ELSE",mknode("","",mknode("","INNER_ENV",NULL,$10),NULL),mkleaf(")","")));}
 ;
 /*======================================================Loops======================================================*/
 loops: do_while 											{$$=$1;}
 | for 														{$$=$1;}
 | while 													{$$=$1;}
 ;
-while: WHILE '(' expression ')' condition_statement 		{$$=mknode("WHILE","",$3,mknode("","RIGHT",$5,mkleaf(")","")));}
-| WHILE '(' expression ')' '{' decs_with_stats '}' 							{$$=mknode("WHILE","",$3,mknode("","RIGHT",$6,mkleaf(")","")));}
+while: WHILE '(' expression ')' condition_statement 		{$$=mknode("WHILE","",$3,mknode("","RIGHT",mknode("","COND_STAT",NULL,$5),mkleaf(")","")));}
+| WHILE '(' expression ')' '{' decs_with_stats '}' 							{$$=mknode("WHILE","",$3,mknode("","RIGHT",mknode("","INNER_ENV",NULL,$6),mkleaf(")","")));}
 ;
-do_while: DO '{' decs_with_stats '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",$3,mknode("WHILE-COND","",$7,mkleaf(")","")));};
+do_while: DO '{' decs_with_stats '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",mknode("","INNER_ENV",NULL,$3),mknode("WHILE-COND","",$7,mkleaf(")","")));};
 for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statement 
-															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$9))),mkleaf(")",""));}
+															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,mknode("","COND_STAT",NULL,$9)))),mkleaf(")",""));}
 | FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' decs_with_stats '}'
-															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,$10))),mkleaf(")",""));}
+															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,mknode("","INNER_ENV",NULL,$10)))),mkleaf(")",""));}
 ;
 /*======================================================Return======================================================*/
 return: RETURN expression ';' 								{$$ = mknode("RETURN","",$2,mkleaf(")",""));}
@@ -273,11 +276,11 @@ expression: expression PLUS expression   					{$$=mknode("","+",mknode($2,"OP",$
 | ID														{$$=mkleaf($1,"ID");}	
 | call														{$$=mknode("FUNC_CALL","",$1,mkleaf(")",""));} 
 | ADDRS ID													{$$=mknode("ADDRESS","ADDR",mkleaf($2,"ID"),NULL);}
-| ADDRS ID '[' expression ']'								{$$=mknode("ADDRESS","ADDR_INDEX",mknode($2,"",$4,NULL),NULL);}		
+| ADDRS ID '[' expression ']'								{$$=mknode("ADDRESS","ADDR_INDEX",mknode($2,"ID",$4,NULL),NULL);}		
 | '|' ID '|'												{$$=mknode("LEN","IDLEN",mkleaf($2,"ID"),NULL);}								
 | '(' expression ')'      								    {$$=$2;}																																						
 | ID '[' expression ']'										{$$=mknode($1,"ID_INDEX",$3,NULL);}
-| MULT ID													{$$=mknode($1,"UN_OP_PTR",mkleaf($2,""),NULL);}
+| MULT ID													{$$=mknode($1,"UN_OP_PTR",mkleaf($2,"ID"),NULL);}
 ;
 unary_operator: PLUS 										{$$=$1;}
 | MINUS 													{$$=$1;}
@@ -485,6 +488,7 @@ env* mkEnv(int returnType){
 	node->vars = NULL;
 	node->next = NULL;
 	node->returnType =returnType;
+	node->isInner = FALSE;
 	return node;
 }
 env* addFuncToEnv(env* env, func* func){
@@ -516,6 +520,37 @@ env* addVarToEnv(env* env, var* var){
 		}
 	}
 	return env;
+}
+env* addVarToInnerEnv(env* enviroment, var* var){
+	if(!enviroment->next){
+		printf("Logical error in addVarToInnerEnv!\n");
+		exitWithError();
+	}
+	env* tmp = enviroment;
+	while(tmp->isInner){
+		if(findVar(tmp->vars,var->name)){
+			printf("\nVariable with name %s already declared \n",var->name);
+			exitWithError();
+		}
+		tmp = tmp->next;
+	}
+	if(findVar(tmp->vars,var->name)){
+			printf("\nVariable with name %s already declared \n",var->name);
+			exitWithError();
+		}
+	else{
+		if(enviroment->vars == NULL){
+			enviroment->vars=var;
+		}else{
+			if(!findVar(enviroment->vars,var->name)){
+				enviroment->vars = addVar(enviroment->vars,var);
+			}else{
+				printf("\nVariable with name %s already declared\n",var->name);
+				exitWithError();
+			}
+		}
+	}
+	return enviroment;
 }
 env* pushEnv(env* head, env* node){
 	node->next = head;
@@ -649,8 +684,8 @@ bool findFunc(func* head,char* name){
 
 
 void exitWithError(){
-	/*freeENVs(global);
-	freeTree(root);*/
+	freeENVs(global);
+	freeTree(root);
 	getchar();
 	exit(1);
 }
@@ -862,6 +897,11 @@ int evalExpType(node* root, env* enviroment){
 		}
 		return evaluateFuncCall(root->left->left, function,enviroment);
 	}
+	else{
+		
+		printf("\nLogical Error inside evalExpType!\n" );
+		exitWithError();
+	}
 }
 
 int getIDVarType(env* enviroment, char* name){
@@ -911,26 +951,35 @@ int getTypeForPrimDec(node *root){
 }
 
 
-void checkPrimDeclarations(node* root,int type){
+void checkPrimDeclarations(node* root,int type, bool inner){
 	if(!root){
 		return;
 	}
 	if(!strcmp(root->desc,"DEC_PRIM")){
-		global = addVarToEnv(global,mkVar(root->left->value,type));
+		if(inner){
+			global = addVarToInnerEnv(global,mkVar(root->left->value,type));
+		}
+		else global = addVarToEnv(global,mkVar(root->left->value,type));
 	}
 	else if(!strcmp(root->desc,"DEC_ASS_PRIM")){
 
 		int expType = evalExpType(root->left->left->right,global);
 		if(assignmentCheck(type,expType)){
-			global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
+			if(inner){
+				global = addVarToInnerEnv(global,mkVar(root->left->left->left->value,type));
+			}
+			else global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
 		}
 		else{
 			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value,getTypeByNumber(type) );
 			exitWithError();
 		}
 	}else if(!strcmp(root->desc,"ID")){
-		global = addVarToEnv(global,mkVar(root->value,type));
-		checkPrimDeclarations(root->right,type);
+		if(inner){
+			global = addVarToInnerEnv(global,mkVar(root->value,type));
+		}
+		else global = addVarToEnv(global,mkVar(root->value,type));
+		checkPrimDeclarations(root->right,type,inner);
 	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_NODE")){
 		int expType = evalExpType(root->left->left->right,global);
 		if(assignmentCheck(type,expType)){
@@ -940,11 +989,14 @@ void checkPrimDeclarations(node* root,int type){
 			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value ,getTypeByNumber(type));
 			exitWithError();
 		}
-		checkPrimDeclarations(root->right,type);
+		checkPrimDeclarations(root->right,type,inner);
 	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_LEAF")){
 		int expType = evalExpType(root->left->right,global);
 		if(assignmentCheck(type,expType)){
-			global = addVarToEnv(global,mkVar(root->left->left->value,type));
+			if(inner){
+				global = addVarToInnerEnv(global,mkVar(root->left->left->value,type));
+			}
+			else global = addVarToEnv(global,mkVar(root->left->left->value,type));
 		}
 		else{
 			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->value,getTypeByNumber(type) );
@@ -978,6 +1030,31 @@ int evaluateFuncCall(node* root,func* function, env* enviroment){
 	}
 
 }
+void checkVarDecs(node* root, bool inner){
+	if(!root) return;
+
+	if(!strcmp(root->desc,"VARDECS")){
+		checkVarDecs(root->left,inner);
+		checkVarDecs(root->right,inner);
+	}
+	else if(!strcmp(root->desc,"PRIM_DECS")){
+		if(root->right->left){
+			checkPrimDeclarations(root->right->left,getTypeForPrimDec(root->right),inner);
+		}
+		checkPrimDeclarations(root->right->right,getTypeForPrimDec(root->right),inner);
+	} else if(!strcmp(root->desc,"STR_DECS")){
+		checkStrDeclarations(root->right,inner);
+	}else if(!strcmp(root->desc,"STATEMENTS")){
+		startSemanticalAnalysis(root->left);
+		startSemanticalAnalysis(root->right);
+	}else if( !strcmp(root->desc,"FUNCTIONS")){
+		startSemanticalAnalysis(root);
+	}
+	else{
+		printf("\nLogical Error inside checkVarDecs\n" );
+		exitWithError();
+	}	
+}
 bool assignmentCheck(int varType, int expType){
 	if(varType==expType){
 		return TRUE;
@@ -994,18 +1071,27 @@ bool assignmentCheck(int varType, int expType){
 		return FALSE;
 	}
 }
-void checkStrDeclarations(node * root){
+void checkStrDeclarations(node * root,bool inner){
 	if(!root){
 		return;
 	}
 	if(!strcmp(root->desc,"STR_1L")){
-		global = addVarToEnv(global,mkVar(root->left->value,STRING));
+		if(inner){
+			global = addVarToInnerEnv(global,mkVar(root->left->value,STRING));
+		}
+		else global = addVarToEnv(global,mkVar(root->left->value,STRING));
 	}else if(!strcmp(root->desc,"STR_2L")){
-		global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
+		if(inner){
+			global = addVarToInnerEnv(global,mkVar(root->left->left->value,STRING));
+		}
+		else global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
 	}else if(!strcmp(root->desc,"STR_3L")){
-		global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
+		if(inner){
+			global = addVarToInnerEnv(global,mkVar(root->left->left->left->value,STRING));
+		}
+		else global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
 	}else if(!strcmp(root->desc,"D-RIGHT")){
-		checkStrDeclarations(root->left);
+		checkStrDeclarations(root->left,inner);
 	}else if(!strcmp(root->value,")")){
 		return;
 	}
@@ -1013,7 +1099,7 @@ void checkStrDeclarations(node * root){
 		printf("\nLogical Error inside checkStrDeclarations\n" );
 		exitWithError();
 	}	
-	checkStrDeclarations(root->right);	
+	checkStrDeclarations(root->right,inner);	
 
 	
 }
@@ -1047,21 +1133,16 @@ void startSemanticalAnalysis(node* root){
 		global = pushEnv(global,newEnv);
 		global = addArgsToEnv(global,root->left->left->left,numOfArgs);
 		startSemanticalAnalysis(root->left->left->right->right->right);
+		if(!strcmp(root->value,"FUNCTION") && strcmp(root->left->value,"main")){
+			hasReturn(root->left->left->right->right->right->left);
+		}
 	}else if(!strcmp(root->value,"BODY")){
 		startSemanticalAnalysis(root->left);
 		startSemanticalAnalysis(root->right);
 	}
 	else if(!strcmp(root->desc,"VARDECS")){
-	startSemanticalAnalysis(root->left);
-	startSemanticalAnalysis(root->right);
-	} else if(!strcmp(root->desc,"PRIM_DECS")){
-		if(root->right->left){
-			checkPrimDeclarations(root->right->left,getTypeForPrimDec(root->right));
-		}
-		checkPrimDeclarations(root->right->right,getTypeForPrimDec(root->right));
-	} else if(!strcmp(root->desc,"STR_DECS")){
-		checkStrDeclarations(root->right);
-	}else if(!strcmp(root->desc,"STATEMENTS")){
+		checkVarDecs(root, 0);
+	} else if(!strcmp(root->desc,"STATEMENTS")){
 		startSemanticalAnalysis(root->left);
 		startSemanticalAnalysis(root->right);
 	}else if(!strcmp(root->desc,"ENV_BLOCK")){
@@ -1080,11 +1161,10 @@ void checkConditionStatement(node* root){
 		func* function = getFuncByID(global,root->left->value);
 		evaluateFuncCall(root->left->left,function, global);
 	} else if(!strcmp(root->desc,"CONDS")){
-		//checkConds(root);
+		checkConds(root->left);
 	}else if(!strcmp(root->desc,"LOOPS")){
-		//checkLoops(root);
+		checkLoops(root->left);
 	}else if(!strcmp(root->desc,"RET")){
-		printf("retType:%d",global->returnType);
 		if(global->returnType==BLOCK){
 			printf("\nReturn statement should not appear outside of function block\n" );
 			exitWithError();
@@ -1157,9 +1237,125 @@ void checkAssigment(node *root){
 		exitWithError();
 	}
 }
+void hasReturn(node* root){
+	if(root){
+		while(root->right){
+			root = root->right;
+		}
+		if( root->left ){
+			if(strcmp(root->left->value,"BLOCK")){
+				if(root->left->right){
+					if(!strcmp(root->left->right->desc,"RET")){
+						return;
+					}
+				}
+			}
+		}
+	}
+	printf("\nFunction missing final return statement!\n" );
+	exitWithError();
+}
 void checkLoops(node* root){
+	if(!root){
+		return;
+	}else if(!strcmp(root->value,"DO")){
+		checkLoops(root->left);
+		int type = evalExpType(root->right->left,global);
+		if(type != BOOL){
+			printf("Do-while condition must be of type BOOL! received %s\n", getTypeByNumber(type));
+			exitWithError();
+		}
+		global = popEnv(global);
+	}else if(!strcmp(root->value,"WHILE")){
+		int type = evalExpType(root->left,global);
+		if(type != BOOL){
+			printf("While condition must be of type BOOL! received %s\n", getTypeByNumber(type));
+			exitWithError();
+		}
+		checkLoops(root->right->left);
+		if(!strcmp(root->right->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->value,"FOR")){
+		var* initVar = findVarForAssigment(global,root->left->left->left->left->value);
+		if(!initVar){
+			printf("Undeclared variable received! %s\n", root->left->left->left->left->value);
+			exitWithError();
+		}else if(initVar->type != INT){
+			printf("For loop init variable must be an integer! received %s\n", getTypeByNumber(initVar->type));
+			exitWithError();
+		}
+		int initExp = evalExpType(root->left->left->left->right,global);
+		if(initExp != INT){
+			printf("For loop init variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(initExp));
+			exitWithError();
+		}
+		int condExp = evalExpType(root->left->right->left,global);
+		if(condExp != BOOL){
+			printf("Illegal for loop condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
+			exitWithError();
+		}
+		var* updVar = findVarForAssigment(global,root->left->right->right->left->left->left->value);
+		if(!updVar){
+			printf("Undeclared variable received! %s\n", root->left->right->right->left->left->left->value);
+			exitWithError();
+		}else if(updVar->type != INT){
+			printf("For loop update variable must be an integer! received %s\n", getTypeByNumber(updVar->type));
+			exitWithError();
+		}
+		int updExp = evalExpType(root->left->right->right->left->left->right,global);
+		if(updExp != INT){
+			printf("For loop update variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(updExp));
+			exitWithError();
+		}
+		checkLoops(root->left->right->right->right);
+		if(!strcmp(root->left->right->right->right->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"INNER_ENV")){
+		env* tmp = mkEnv(global->returnType);
+		tmp->isInner = TRUE;
+		global = pushEnv(global,tmp);
 
+		checkVarDecs(root->right, 1);
+	}else if(!strcmp(root->desc,"COND_STAT")){
+		checkConditionStatement(root->right);
+	}else{
+		printf("\nLogical Error inside checkLoops\n" );
+		exitWithError();
+	}
 }
 void checkConds(node* root){
-
+	if(!root){
+		return;
+	}else if(!strcmp(root->desc,"IF")){
+		int condExp = evalExpType(root->left,global);
+		if(condExp != BOOL){
+			printf("Illegal if condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
+			exitWithError();
+		}
+		checkConds(root->right->left);
+		if(!strcmp(root->right->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"IFELSE")){
+		checkConds(root->left);
+		checkConds(root->right);
+	}else if(!strcmp(root->desc,"ELSE")){
+		checkConds(root->left->left);
+		if(!strcmp(root->left->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"INNER_ENV")){
+		env* tmp = mkEnv(global->returnType);
+		tmp->isInner = TRUE;
+		global = pushEnv(global,tmp);
+		checkVarDecs(root->right, 1);
+	}
+	else if(!strcmp(root->desc,"COND_STAT")){
+		checkConditionStatement(root->right);
+	}else{
+		printf("\nLogical Error inside checkConds\n" );
+		exitWithError();
+	}
 }
