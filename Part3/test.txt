@@ -1,0 +1,21 @@
+
+void foo(){
+    var int px;
+    
+}
+void main(){
+    foo();
+}
+
+
+
+/*TODO:condsTo3AC,
+loopsTo3AC,assigmentTo3AC,
+strDeclarationsTo3AC
+
+
+ALMOST FINISHED: 
+expTo3AC
+To3AC*/
+
+

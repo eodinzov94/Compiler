@@ -1,5 +1,5 @@
 %{
-
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -22,6 +22,11 @@ typedef struct node
 {
  char *value;
  char *desc;
+ char *code;
+ char *var;
+ char *label;
+ char *truelabel;
+ char *falselabel;
  struct node *left;
  struct node *right;
 } node;
@@ -51,10 +56,7 @@ typedef struct env {
 
 /*PART 1*/
 node *mknode(char* value,char *desc, node *left, node *right);
-void printTree(node *tree,int tabsNum);
 node* mkleaf(char* value,char* desc);
-void printToken(node *tree,int tabsNum);
-void printTabs(int tabsNum);
 void freeTree(node *tree);
 char* mkcat(char* s1,char*s2);
 int yyerror();
@@ -99,8 +101,28 @@ int* getArgsTypeFromRoot(node* root,int* len);
 env* addArgsToEnv(env* env,node* root,int numOfArgs);
 void findCheckMain();
 int numOfmains = 0;
+int varLabel = 0;
+int codeLabel = 1;
 bool isPointer(int type);
+/*PART3*/
+char* newCodeLabel();
+char* newVarLabel();
+void print (node* root);
+void To3AC(node* root);
+void condsTo3AC(node* root);
+void loopsTo3AC(node* root);
+void assigmentTo3AC(node *root);
+void conditionStatementTo3AC(node* root);
+void strDeclarationsTo3AC(node * root);
+void varDecsTo3AC(node* root);
+void FuncCallTo3AC(node* root,func*);
+void primDeclarationsTo3AC(node* root);
+void expTo3AC(node* root);
+int calcBytesForFunc(func*);
+int getBytesByType(int);
+func* findFuncInGlobal(char* name);
 env* global = NULL;
+env* pointerToGlobalOnly = NULL;
 node* root = NULL;
 %}
 
@@ -147,7 +169,13 @@ node* root = NULL;
 /*#################################################################RULES###########################################################################*/
 %%
 /*======================================================Start Program======================================================*/
-program: code							                    {root=$1;startSemanticalAnalysis($1);printTree($1,0);freeTree($1);freeENVs(global);getchar();}
+program: code							                    {	root=$1;
+																startSemanticalAnalysis($1);
+																To3AC($1);
+																/*freeTree($1);
+																freeENVs(global);
+																getchar();*/
+															}
 ;
 code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")",""));}
 ;
@@ -160,8 +188,8 @@ functions: function functions    					        {$$=mknode("","FUNCTIONS",$1,$2);}
 function:  VALTYPE ID '(' parameter_list ')' '{' body '}'   {$$=mknode("FUNCTION","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode($1,"",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));};
 procedure: VOID ID '(' parameter_list ')' '{' body '}'      {$$=mknode("PROCEDURE","",mknode($2,"",mknode("ARGS","",$4,mknode(")","",NULL,mknode("VOID","",NULL,mknode("BODY","",$7,mkleaf(")",""))))),NULL),mkleaf(")",""));}
 ;
-body: function body 										{$$=mknode("","FUNCTIONS",$1,$2);} 
-| procedure body                                            {$$=mknode("","FUNCTIONS",$1,$2);}
+body: function body 										{$$=mknode("FUNCFROMBODY","FUNCTIONS",$1,$2);} 
+| procedure body                                            {$$=mknode("FUNCFROMBODY","FUNCTIONS",$1,$2);}
 | var_decs body												{$$=mknode("","VARDECS",$1,$2);}
 | statements 												{$$=$1;}
 ;
@@ -318,98 +346,12 @@ node *mknode(char* value,char *desc,node *left,node *right){
  newnode->right = right;
  newnode->desc = strdup(desc);
  newnode->value = strdup(value);
+ newnode->code = strdup("");
+ newnode->var  = NULL;
+ newnode->label = NULL;
+ newnode->truelabel = NULL;
+ newnode->falselabel = NULL;
  return newnode;
-}
-void printTree(node *tree,int tabs){
-	if(!tree)
-		return;
-	printToken(tree,tabs);
-	if(tree->left){
-		if(!strcmp(tree->desc,"RIGHT")){
-			printTree(tree->left,tabs+1);
-		}else if( !strcmp(tree->desc,"LEFT")){
-			printTree(tree->left,tabs-1);
-		}
-		else if(!strcmp(tree->value,"")){
-			printTree(tree->left,tabs);
-		}
-		else{
-			printTree(tree->left,tabs+1);
-		}	
-	}
-	if (tree->right){
-		if(!strcmp(tree->desc,"ASS") || !strcmp(tree->desc,"OP")){
-			printTree(tree->right,tabs+1);
-		}
-		else if(!strcmp(tree->desc,"D-RIGHT")){
-			printTree(tree->right,tabs+1);
-		}
-		else {
-			printTree(tree->right,tabs);
-		}
-	}
-}
-void printToken(node *tree,int tabs){
-  if(!strcmp(tree->desc, "OP") || !strcmp(tree->desc, "ASS")){
-	  printTabs(tabs);
-	  printf("(%s\n", tree->value);
-  }
-  else if(!strcmp(tree->desc, "CLOSE_ASS")){
-	  printTabs(tabs-1);
-	  printf("%s\n", tree->value);
-  }
-  else if(!strcmp(tree->desc, "CLOSE_RIGHT")){
-	  printTabs(tabs+1);
-	  printf("%s\n", tree->value);
-  }
-  else if(!strcmp(tree->value, "CODE")){
-	  printTabs(tabs);
-	  printf("(CODE\n");
-  }
-  else if(!strcmp(tree->value, "")){}
-  else if(!strcmp(tree->value, "FUNCTION")){
-	  printTabs(tabs);
-	  printf("(FUNCTION\n");
-  }
-  else if(!strcmp(tree->value, "PROCEDURE")){
-	  printTabs(tabs);
-	  printf("(PROCEDURE\n");	
-  }else if(!strcmp(tree->value, "ARGS")){
-	  printTabs(tabs);
-	  printf("(ARGS\n");
-  }else if(!strcmp(tree->value, "BODY")){
-	  printTabs(tabs);
-	  printf("(BODY\n");
-  }else if(!strcmp(tree->value, "BLOCK")){
-	  printTabs(tabs);
-	  printf("(BLOCK\n");
-  }else if(!strcmp(tree->value, "WHILE")){
-	  printTabs(tabs);
-	  printf("(WHILE\n");
-  }
-  else if(!strcmp(tree->value, "FOR")){
-	  printTabs(tabs);
-	  printf("(FOR\n");
-  }
-  else if(!strcmp(tree->value, "RETURN")){
-	  printTabs(tabs);
-	  printf("(RETURN\n");
-  }
-  else if(!strcmp(tree->value, "DO")){
-	  printTabs(tabs);
-	  printf("(DO\n");
-  }else if(!strcmp(tree->value, "FUNC_CALL")){
-	  printTabs(tabs);
-	  printf("(FUNC_CALL\n");
-  }else if(!strcmp(tree->value, "IF")){
-	  printTabs(tabs);
-	  printf("(IF\n");
-  }
-  else{
-	  printTabs(tabs);
-	  printf("%s\n",tree->value);
-  }
-
 }
 char* mkcat(char* s1,char*s2){
 	int len1= strlen(s1);
@@ -446,8 +388,6 @@ void freeTree(node *tree){
 	free(tree);
 }
 
-
-/*PART 2*/
 
 func* mkFunc(char* name,int* argsType,int returnType,int numOfArgs){
 	func* node = (func*)malloc(sizeof(func));
@@ -741,18 +681,40 @@ int evalExpType(node* root, env* enviroment){
 		exitWithError();
 	}
 
-	if(!strcmp(root->desc, "BOOL")) return BOOL;
-	else if(!strcmp(root->desc, "CHAR")) return CHAR;
-	else if(!strcmp(root->desc, "INT")) return INT;
-	else if(!strcmp(root->desc, "REAL")) return REAL;
-	else if(!strcmp(root->desc, "STR")) return STRING;
-	else if(!strcmp(root->desc, "NULLP")) return NULLPTR;
+	if(!strcmp(root->desc, "BOOL")){
+		root->var = newVarLabel();
+		return BOOL;
+	} 
+	else if(!strcmp(root->desc, "CHAR")){
+		root->var = newVarLabel();
+		return CHAR;
+	} 
+	else if(!strcmp(root->desc, "INT")){
+		root->var = newVarLabel();
+		return INT;
+	} 
+	else if(!strcmp(root->desc, "REAL")){
+		root->var = newVarLabel();
+		return REAL;
+	} 
+	else if(!strcmp(root->desc, "STR")){
+		root->var = newVarLabel();
+		return STRING;
+	} 
+	else if(!strcmp(root->desc, "NULLP")){
+		root->var = newVarLabel();
+		return NULLPTR;
+	} 
 
 	else if(!strcmp(root->desc, "ID")){
+		if(!root->var){
+			root->var = strdup(root->value);
+		}
 		return getIDVarType(enviroment, root->value);
 	}else if(!strcmp(root->desc, "ID_INDEX")){
 		int value = getIDVarType(enviroment, root->value);
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if(leftson != INT){
 			printf("Unsupported index value type %s for string type!\n", getTypeByNumber(leftson));
 			exitWithError();
@@ -767,6 +729,7 @@ int evalExpType(node* root, env* enviroment){
 	}
 	else if(!strcmp(root->desc, "UN_OP") && (!strcmp(root->value, "+") || !strcmp(root->value, "-"))) {
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if (leftson != REAL && leftson != INT){
 			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
 			exitWithError();
@@ -774,6 +737,7 @@ int evalExpType(node* root, env* enviroment){
 		else return leftson;
 	}else if(!strcmp(root->desc, "UN_OP") && !strcmp(root->value, "!")){
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if (leftson != BOOL ){
 			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
 			exitWithError();
@@ -781,6 +745,7 @@ int evalExpType(node* root, env* enviroment){
 		else return BOOL;
 	}else if(!strcmp(root->desc, "UN_OP")&& !strcmp(root->value, "*")){
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if ( leftson != INTP && leftson != CHARP && leftson != REALP ){
 			printf("Attempted pointer assignment for unsupported type %s!\n",getTypeByNumber(leftson));
 			exitWithError();
@@ -790,6 +755,7 @@ int evalExpType(node* root, env* enviroment){
 		}
 	}else if(!strcmp(root->desc, "ADDR")){
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if (leftson != CHAR && leftson != REAL && leftson != INT){
 			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
 			exitWithError();
@@ -801,6 +767,7 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "ADDR_INDEX")){
 		int leftson = evalExpType(root -> left, enviroment);
 		int leftgrandson = evalExpType(root->left->left, enviroment);
+		root->var = newVarLabel();
 		if(leftson != STRING){
 			printf("Unsupported operator %s for non string type!\n", root->value);
 			exitWithError();
@@ -814,8 +781,9 @@ int evalExpType(node* root, env* enviroment){
 		}
 	}
 	else if(!strcmp(root->desc, "+") || !strcmp(root->desc, "-") ){
-		int leftson = evalExpType(root -> left->left, enviroment);
+		int leftson = evalExpType(root ->left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
 		if( (isPointer(leftson) && rightson == INT)){
 			if(isPointer(leftson)){
 				return leftson;
@@ -835,6 +803,7 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "*")|| !strcmp(root->desc, "/")){
 		int leftson = evalExpType(root -> left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
 		if ((leftson != REAL && leftson != INT) || (rightson != REAL && rightson != INT) ){
 			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
 			exitWithError();
@@ -847,6 +816,7 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "&&") || !strcmp(root->desc, "||")){
 		int leftson = evalExpType(root -> left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
 		if (leftson != BOOL || rightson != BOOL ){
 			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
 			exitWithError();
@@ -855,6 +825,7 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "<") || !strcmp(root->desc, ">")|| !strcmp(root->desc, "<=")|| !strcmp(root->desc, ">=")){
 		int leftson = evalExpType(root -> left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
 		if ((leftson != REAL && leftson != INT) || (rightson != REAL && rightson != INT) ){
 			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
 			exitWithError();
@@ -863,6 +834,7 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "!=") || !strcmp(root->desc, "==")){
 		int leftson = evalExpType(root -> left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
 		if (leftson != rightson || leftson == STRING){
 			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
 			exitWithError();
@@ -870,6 +842,7 @@ int evalExpType(node* root, env* enviroment){
 		else return BOOL;
 	}else if(!strcmp(root->desc, "IDLEN")){
 		int leftson = evalExpType(root -> left, enviroment);
+		root->var = newVarLabel();
 		if ( leftson != STRING){
 			printf("Unsupported operator %s for type %s\n", root->value, getTypeByNumber(leftson));
 			exitWithError();
@@ -877,6 +850,7 @@ int evalExpType(node* root, env* enviroment){
 		else return INT;
 	}else if(!strcmp(root->value, "FUNC_CALL")){
 		func* function = getFuncByID(enviroment,root->left->value);
+		root->var = newVarLabel();
 		if(function->returnType == VOID){
 			printf("\n Assignment type mismatch: function '%s' has return type VOID", root->left->value);
 			exitWithError();
@@ -943,12 +917,14 @@ void checkPrimDeclarations(node* root,int type){
 	}
 	if(!strcmp(root->desc,"DEC_PRIM")){
 		 global = addVarToEnv(global,mkVar(root->left->value,type));
+		 root->left->var = strdup(root->left->value);
 	}
 	else if(!strcmp(root->desc,"DEC_ASS_PRIM")){
 
 		int expType = evalExpType(root->left->left->right,global);
 		if(assignmentCheck(type,expType)){
 			 global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
+			 root->left->left->left->var = strdup(root->left->left->left->value);
 		}
 		else{
 			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value,getTypeByNumber(type) );
@@ -956,11 +932,13 @@ void checkPrimDeclarations(node* root,int type){
 		}
 	}else if(!strcmp(root->desc,"ID")){
 		global = addVarToEnv(global,mkVar(root->value,type));
+		root->var = strdup(root->value);
 		checkPrimDeclarations(root->right,type);
 	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_NODE")){
 		int expType = evalExpType(root->left->left->right,global);
 		if(assignmentCheck(type,expType)){
 			global = addVarToEnv(global,mkVar(root->left->left->left->value,type));
+			root->left->left->left->var = strdup(root->left->left->left->value );
 		}
 		else{
 			printf("Assignment type mismatch %s != %s in VAR:%s [%s]\n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->left->value ,getTypeByNumber(type));
@@ -971,6 +949,7 @@ void checkPrimDeclarations(node* root,int type){
 		int expType = evalExpType(root->left->right,global);
 		if(assignmentCheck(type,expType)){
 			global = addVarToEnv(global,mkVar(root->left->left->value,type));
+			root->left->left->var = strdup(root->left->left->value);
 		}
 		else{
 			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(type),getTypeByNumber(expType),root->left->left->value,getTypeByNumber(type) );
@@ -1051,10 +1030,13 @@ void checkStrDeclarations(node * root){
 	}
 	if(!strcmp(root->desc,"STR_1L")){
 		 global = addVarToEnv(global,mkVar(root->left->value,STRING));
+		 root->left->var = strdup(root->left->value);
 	}else if(!strcmp(root->desc,"STR_2L")){
 		 global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
+		 root->left->left->var = strdup(root->left->left->value);
 	}else if(!strcmp(root->desc,"STR_3L")){
 		global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
+		root->left->left->left->var = strdup(root->left->left->left->value);
 	}else if(!strcmp(root->desc,"D-RIGHT")){
 		checkStrDeclarations(root->left);
 	}else if(!strcmp(root->value,")")){
@@ -1074,6 +1056,7 @@ void startSemanticalAnalysis(node* root){
 	}
 	if(!strcmp(root->value,"CODE")){
 		global = mkEnv(GLOBAL);
+		pointerToGlobalOnly = global;
 		startSemanticalAnalysis(root->left);
 		if(numOfmains>1){
 			printf("\nThere should be exact one main\n");
@@ -1093,6 +1076,7 @@ void startSemanticalAnalysis(node* root){
 		argsType = getArgsTypeFromRoot(root->left->left->left,&numOfArgs);
 		int type = getType(root->left->left->right->right->value);
 		func * newF =mkFunc(root->left->value,argsType,type,numOfArgs);
+		asprintf(&root->label,"%s:\n",root->left->value);
 		global = addFuncToEnv(global,newF);
 		env* newEnv = mkEnv(type);
 		global = pushEnv(global,newEnv);
@@ -1172,6 +1156,7 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(var_ass->type),getTypeByNumber(expType),var_ass->name,getTypeByNumber(var_ass->type));
 			exitWithError();
 		}
+		root->right->left->left->var = strdup(root->right->left->left->value);
 	}
 	else if(!strcmp(root->desc,"INDEXASS")){
 		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
@@ -1185,6 +1170,7 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch for STRING[INDEX], expected CHAR but received %s\n",getTypeByNumber(assExpType));
 			exitWithError();
 		}
+		root->right->left->left->var = strdup(root->right->left->left->value);
 	}
 	else if(!strcmp(root->desc,"PTRASS")){
 		var* var_ass = findVarForAssigment(global,root->right->left->left->left->value);
@@ -1194,6 +1180,7 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch for *ID, expected %s but received %s\n",getTypeByNumber(conreteType),getTypeByNumber(expType));
 			exitWithError();
 		}
+		root->right->left->left->left->var = strdup(root->right->left->left->left->value);
 	}
 	else{
 		printf("\nLogical Error inside checkAssigment\n" );
@@ -1326,4 +1313,492 @@ bool isPointer(int type){
 	}else{
 		return TRUE;
 	}
+}
+
+
+char* newVarLabel(){
+	char* t;
+	asprintf(&t,"t%d",varLabel++);
+	return t;
+}
+char* newCodeLabel(){
+	char* l;
+	asprintf(&l,"L%d:",codeLabel++);
+	return l;
+}
+void print (node* root){
+	if(!root)
+		return;
+	print(root->left);
+	print(root->right);
+	if(root->var != NULL)
+		printf("3AC:%s \t C: value-%s | desc:%s\n",root->var,root->value,root->desc);
+}
+/*PART 3 */ 
+void To3AC(node* root){
+	if(root==NULL){
+		return;
+	}
+	if(!strcmp(root->value,"CODE")){
+		To3AC(root->left);
+		printf("%s",root->left->code);
+		//printToTxt(root->left->code);
+	}else if(!strcmp(root->value,"FUNCFROMBODY")){
+		//Add recursive call to root that is not FUNCTIONS 
+		return;
+	}
+	else if(!strcmp(root->desc,"FUNCTIONS")){
+		To3AC(root->left);
+		To3AC(root->right);
+		if(root->left && root->right){
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else if(root->left){
+			root->code = strdup(root->left->code);
+		}
+	}
+	else if(!strcmp(root->value,"FUNCTION") || !strcmp(root->value,"PROCEDURE")){
+		To3AC(root->left->left->right->right->right);
+		asprintf(&root->code,"%s\t\tBeginFunc\n%s\t\tEndFunc\n",root->label,root->left->left->right->right->right->code);
+	}else if(!strcmp(root->value,"BODY")){
+		To3AC(root->left);
+		To3AC(root->right);
+		if(root->left && root->right){
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else if(root->left){
+			root->code = strdup(root->left->code);
+		}
+	}
+	else if(!strcmp(root->desc,"VARDECS")){
+		varDecsTo3AC(root);
+	} else if(!strcmp(root->desc,"STATEMENTS")){
+		To3AC(root->left);
+		To3AC(root->right);
+		if(root->left && root->right){
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else if(root->left){
+			root->code = strdup(root->left->code);
+		}
+	}else if(!strcmp(root->desc,"COND_STAT")){
+		conditionStatementTo3AC(root->right);
+		root->code = strdup(root->right->code);
+
+	}
+	return;
+}
+
+void condsTo3AC(node* root){
+	return;
+	/*if(!root){
+		return;
+	}else if(!strcmp(root->desc,"IF")){
+		int condExp = evalExpType(root->left,global);
+		if(condExp != BOOL){
+			printf("Illegal if condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
+			exitWithError();
+		}
+		condsTo3AC(root->right->left);
+		if(!strcmp(root->right->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"IFELSE")){
+		condsTo3AC(root->left);
+		condsTo3AC(root->right);
+	}else if(!strcmp(root->desc,"ELSE")){
+		condsTo3AC(root->left->left);
+		if(!strcmp(root->left->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"INNER_ENV")){
+		env* tmp = mkEnv(global->returnType);
+		global = pushEnv(global,tmp);
+		condsTo3AC(root->right);
+	}
+	else if(!strcmp(root->desc,"COND_STAT")){
+		conditionStatementTo3AC(root->right);
+	}else{
+		printf("\nLogical Error inside checkConds\n" );
+		exitWithError();
+	}*/
+}
+void loopsTo3AC(node* root){
+	/*if(!root){
+		return;
+	}else if(!strcmp(root->value,"DO")){
+		loopsTo3AC(root->left);
+		int type = evalExpType(root->right->left,global);
+		if(type != BOOL){
+			printf("Do-while condition must be of type BOOL! received %s\n", getTypeByNumber(type));
+			exitWithError();
+		}
+		global = popEnv(global);
+	}else if(!strcmp(root->value,"WHILE")){
+		int type = evalExpType(root->left,global);
+		if(type != BOOL){
+			printf("While condition must be of type BOOL! received %s\n", getTypeByNumber(type));
+			exitWithError();
+		}
+		loopsTo3AC(root->right->left);
+		if(!strcmp(root->right->left->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->value,"FOR")){
+		var* initVar = findVarForAssigment(global,root->left->left->left->left->value);
+		if(!initVar){
+			printf("Undeclared variable received! %s\n", root->left->left->left->left->value);
+			exitWithError();
+		}else if(initVar->type != INT){
+			printf("For loop init variable must be an integer! received %s\n", getTypeByNumber(initVar->type));
+			exitWithError();
+		}
+		int initExp = evalExpType(root->left->left->left->right,global);
+		if(initExp != INT){
+			printf("For loop init variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(initExp));
+			exitWithError();
+		}
+		int condExp = evalExpType(root->left->right->left,global);
+		if(condExp != BOOL){
+			printf("Illegal for loop condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
+			exitWithError();
+		}
+		var* updVar = findVarForAssigment(global,root->left->right->right->left->left->left->value);
+		if(!updVar){
+			printf("Undeclared variable received! %s\n", root->left->right->right->left->left->left->value);
+			exitWithError();
+		}else if(updVar->type != INT){
+			printf("For loop update variable must be an integer! received %s\n", getTypeByNumber(updVar->type));
+			exitWithError();
+		}
+		int updExp = evalExpType(root->left->right->right->left->left->right,global);
+		if(updExp != INT){
+			printf("For loop update variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(updExp));
+			exitWithError();
+		}
+		loopsTo3AC(root->left->right->right->right);
+		if(!strcmp(root->left->right->right->right->desc,"INNER_ENV")){
+			global = popEnv(global);
+		}
+	}else if(!strcmp(root->desc,"INNER_ENV")){
+		env* tmp = mkEnv(global->returnType);
+		global = pushEnv(global,tmp);
+
+		checkVarDecs(root->right);
+	}else if(!strcmp(root->desc,"COND_STAT")){
+		checkConditionStatement(root->right);
+	}else{
+		printf("\nLogical Error inside checkLoops\n" );
+		exitWithError();
+	}*/
+}
+
+void assigmentTo3AC(node *root){
+	/*if(!root){
+		return;
+	}
+	if(!strcmp(root->desc,"PRIMASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
+		int expType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(var_ass->type,expType)){
+			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(var_ass->type),getTypeByNumber(expType),var_ass->name,getTypeByNumber(var_ass->type));
+			exitWithError();
+		}
+		root->right->left->left->var = strdup(root->right->left->left->value);
+	}
+	else if(!strcmp(root->desc,"INDEXASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
+		int indexExpType = evalExpType(root->right->left->left->left,global);
+		if(indexExpType != INT){
+			printf("\n Index expression type is %s,but should be INT (in VAR : %s)\n",getTypeByNumber(indexExpType),var_ass->name);
+			exitWithError();
+		}
+		int assExpType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(CHAR,assExpType)){
+			printf("\n Assignment type mismatch for STRING[INDEX], expected CHAR but received %s\n",getTypeByNumber(assExpType));
+			exitWithError();
+		}
+		root->right->left->left->var = strdup(root->right->left->left->value);
+	}
+	else if(!strcmp(root->desc,"PTRASS")){
+		var* var_ass = findVarForAssigment(global,root->right->left->left->left->value);
+		int conreteType = getConcreteType(var_ass->type);
+		int expType = evalExpType(root->right->left->right,global);
+		if(!assignmentCheck(conreteType,expType)){
+			printf("\n Assignment type mismatch for *ID, expected %s but received %s\n",getTypeByNumber(conreteType),getTypeByNumber(expType));
+			exitWithError();
+		}
+		root->right->left->left->left->var = strdup(root->right->left->left->left->value);
+	}
+	else{
+		printf("\nLogical Error inside checkAssigment\n" );
+		exitWithError();
+	}*/
+}
+void conditionStatementTo3AC(node* root){
+	if(!strcmp(root->desc,"FUNC_CALL")){
+		func* function = findFuncInGlobal(root->left->value);
+		FuncCallTo3AC(root->left->left,function);
+		if(root->left->left){
+			root->code = strdup(root->left->left->code);
+		}else{
+			asprintf(&root->code,"\t\tLCall %s\n",function->name);
+		}	
+	} /*else if(!strcmp(root->desc,"CONDS")){
+		condsTo3AC(root->left);
+		root->code = strdup(root->left->code);
+	}else if(!strcmp(root->desc,"LOOPS")){
+		loopsTo3AC(root->left);
+		root->code = strdup(root->left->code);
+	}else if(!strcmp(root->desc,"RET")){
+		expTo3AC(root->left->left);
+		root->code = strdup(root->left->left->code);
+	}else if(!strcmp(root->desc,"RIGHT")){
+		assigmentTo3AC(root->left);
+		root->code = strdup(root->left->code);
+	}*/
+	
+	return;
+
+}
+void strDeclarationsTo3AC(node * root){
+	//TODO ASSIGNMENT: add string assignment that we did not check in semantics
+	/*if(!root){
+		return;
+	}
+	if(!strcmp(root->desc,"STR_1L")){
+		 global = addVarToEnv(global,mkVar(root->left->value,STRING));
+	}else if(!strcmp(root->desc,"STR_2L")){
+		 global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
+	}else if(!strcmp(root->desc,"STR_3L")){
+		global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
+	}else if(!strcmp(root->desc,"D-RIGHT")){
+		checkStrDeclarations(root->left);
+		root->code = strdup(root->left->code);
+	}else if(!strcmp(root->value,")")){
+		return;
+	}
+	else{
+		return;
+	}	
+	checkStrDeclarations(root->right);	
+	root->code = strdup(root->right->code);*/
+	
+}
+void varDecsTo3AC(node* root){
+	if(!root) return;
+
+	if(!strcmp(root->desc,"VARDECS")){
+		varDecsTo3AC(root->left);
+		varDecsTo3AC(root->right);
+		if(root->left && root->right){
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else if(root->left){
+			root->code = strdup(root->left->code);
+		}
+	}
+	else if(!strcmp(root->desc,"PRIM_DECS")){
+		if(root->right->left){
+			primDeclarationsTo3AC(root->right->left);
+		}
+		primDeclarationsTo3AC(root->right->right);
+		if(root->right->left){
+			asprintf(&root->code,"%s%s",root->right->left->code,root->right->right->code);
+		}else{
+			root->code = strdup(root->right->right->code);
+		}
+	} else if(!strcmp(root->desc,"STR_DECS")){
+		strDeclarationsTo3AC(root->right);
+		if(root->right->code){
+			root->code = strdup(root->right->code);
+		}
+		
+	}else if(!strcmp(root->desc,"STATEMENTS")){
+		To3AC(root->left);
+		To3AC(root->right);
+		if(root->left && root->right){
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else if(root->left){
+			root->code = strdup(root->left->code);
+		}
+	}else if( !strcmp(root->desc,"FUNCTIONS")){
+		To3AC(root);
+	}
+	else{
+		printf("\nLogical Error inside checkVarDecs\n" );
+		exitWithError();
+	}	
+}
+
+void FuncCallTo3AC(node* root,func* function){
+	if(!root){
+		return;
+	}
+	printf("/nHERE1/n");
+	node* exp = NULL;
+	root->code = strdup(root->right->code);
+	char* code = NULL;
+	char* temp = NULL;
+	while(root){
+		exp = root->left;
+		expTo3AC(exp);
+		temp = code;
+		if(code){
+			free(code);
+			code = NULL;
+		}
+		if(temp){
+			asprintf(&code,"%s%s\t\tPushParam %s\n",temp,exp->code,exp->var);
+		}
+		else{
+			asprintf(&code,"%s\t\tPushParam %s\n",exp->code,exp->var);
+		}
+		free(temp);
+		temp = NULL;
+		root= root->right;
+	}
+	printf("/nHERE/n");
+	asprintf(&root->code,"%s\t\tLCall %s\n\t\tPopParams %d\n",code,function->name,calcBytesForFunc(function));
+}
+
+void primDeclarationsTo3AC(node* root){
+	if(!root){
+		return;
+	}
+	if(!strcmp(root->desc,"DEC_ASS_PRIM")){
+		expTo3AC(root->left->left->right);
+		asprintf(&root->code,"%s\t\t%s = %s\n",
+		root->left->left->right->code,root->left->left->left->var,root->left->left->right->var);
+	}else if(!strcmp(root->desc,"ID")){
+		primDeclarationsTo3AC(root->right);
+		root->code = strdup(root->right->code);
+	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_NODE")){
+		expTo3AC(root->left->left->right);
+		primDeclarationsTo3AC(root->right);
+		asprintf(&root->code,"%s\t\t%s = %s\n%s",
+		root->left->left->right->code,
+		root->left->left->left->var,
+		root->left->left->right->var,
+		root->right->code);
+	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_LEAF")){
+		expTo3AC(root->left->right);
+		asprintf(&root->code,"%s\t\t%s = %s\n",
+		root->left->right->code,
+		root->left->left->var,
+		root->left->right->var);
+	}
+	return;
+}
+
+void expTo3AC(node* root){
+	if(!strcmp(root->desc, "BOOL")
+		|| !strcmp(root->desc, "CHAR")
+		|| !strcmp(root->desc, "INT")
+	    || !strcmp(root->desc, "REAL")
+	){
+		asprintf(&root->code,"\t\t%s = %s\n",root->var,root->value);
+	}
+	else if(!strcmp(root->desc, "STR")){
+		asprintf(&root->code,"\t\t%s = \"%s\"\n",root->var,root->value);
+	}
+	else if(!strcmp(root->desc, "NULLP")){
+		asprintf(&root->code,"\t\t%s = 0\n",root->var);
+	} 
+	else if(!strcmp(root->desc, "ID")){
+		root->code = strdup("");
+	}else if(!strcmp(root->desc, "ID_INDEX")){
+		expTo3AC(root->left);
+		asprintf(&root->code,"%s\t\t%s = *%s + %s\n",root->left->code,root->var,root->value,root->left->var);
+	}
+	else if(!strcmp(root->desc, "UN_OP") && (!strcmp(root->value, "+") 
+		|| !strcmp(root->value, "-")
+		|| strcmp(root->value, "*")
+		|| strcmp(root->value, "!"))) {
+		expTo3AC(root->left);
+		asprintf(&root->code,"%s\t\t%s = %s%s\n",root->left->code,root->var,root->value,root->left->var);
+	}else if(!strcmp(root->desc, "ADDR")){
+		expTo3AC(root->left);
+		asprintf(&root->code,"%s\t\t%s = &%s\n",root->left->code,root->var,root->left->var);
+	}else if(!strcmp(root->desc, "ADDR_INDEX")){
+		expTo3AC(root->left->left);
+		asprintf(&root->code,"%s\t\t%s = &%s + %s\n",root->left->left->code,root->var,root->left->value,root->left->left->var);
+	}
+	else if(!strcmp(root->desc, "+") || !strcmp(root->desc, "-") || !strcmp(root->desc, "*")|| !strcmp(root->desc, "/") ){
+		expTo3AC(root->left->left);
+		expTo3AC(root->left->right);
+		asprintf(&root->code,"%s%s\t\t%s = %s %s %s\n",
+		root->left->left->code,
+		root->left->right->code,
+		root->var,
+		root->left->left->var,
+		root->desc,
+		root->left->right->var);
+	}else if(!strcmp(root->desc, "&&") || !strcmp(root->desc, "||") || !strcmp(root->desc, "!=") || !strcmp(root->desc, "==")){
+		/*TODO:
+		int leftson = evalExpType(root -> left->left, enviroment);
+		int rightson = evalExpType(root -> left->right, enviroment);
+		root->var = newVarLabel();
+		if (leftson != BOOL || rightson != BOOL ){
+			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
+			exitWithError();
+		}
+		else return BOOL;*/
+
+	}else if(!strcmp(root->desc, "<") || !strcmp(root->desc, ">")|| !strcmp(root->desc, "<=")|| !strcmp(root->desc, ">=")){
+		expTo3AC(root->left->left);
+		expTo3AC(root->left->right);
+		asprintf(&root->code,"%s%s\t\t%s = %s %s %s\n",
+		root->left->left->code,
+		root->left->right->code,
+		root->var,
+		root->left->left->var,
+		root->desc,
+		root->left->right->var);
+	}else if(!strcmp(root->desc, "IDLEN")){
+		asprintf(&root->code,"\t\t%s = |%s|\n",
+		root->var,
+		root->left->left->var);
+	}else if(!strcmp(root->value, "FUNC_CALL")){
+		//TODO:
+		/*func* function = getFuncByID(enviroment,root->left->value);
+		evaluateFuncCall(root->left->left, function,enviroment);*/
+	}
+	return;
+}
+func* findFuncInGlobal(char* name){
+	func* funcs = pointerToGlobalOnly->funcs;
+	while(funcs){
+		if(!strcmp(funcs->name,name)){
+			return funcs;
+		}
+		funcs = funcs->next;
+	}
+	printf("\nLogical Error inside findFuncInGlobal!\n" );
+	exitWithError();
+}
+
+int calcBytesForFunc(func* f){
+	int counter = 0;
+	for(int i = 0 ; i<f->numOfArgs; i++)
+		counter += getBytesByType(f->argsType[i]);
+	return counter;
+}
+int getBytesByType(int type){
+	if(type == BOOL){
+		return 4;
+	}else if(type == REAL){
+		return 8;
+	}else if(type == CHAR){
+		return 1;
+	}else if(type == INTP){
+		return 8;
+	}else if(type == CHARP){
+		return 8;
+	}else if(type == REALP){
+		return 8;
+	}
+	return 0;
+
 }
