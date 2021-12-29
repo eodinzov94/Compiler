@@ -24,6 +24,7 @@ typedef struct node
  char *desc;
  char *code;
  char *var;
+ char *var2; //FOR INDEX ASSIGMENT
  char *label;
  char *truelabel;
  char *falselabel;
@@ -107,17 +108,23 @@ bool isPointer(int type);
 /*PART3*/
 char* newCodeLabel();
 char* newVarLabel();
+void writeToTxtFile(char* code);
 void print (node* root);
 void To3AC(node* root);
 void condsTo3AC(node* root);
 void loopsTo3AC(node* root);
+bool isRelativeOp(char * value);
 void assigmentTo3AC(node *root);
+bool isSimpleCond(node* root);
 void conditionStatementTo3AC(node* root);
 void strDeclarationsTo3AC(node * root);
 void varDecsTo3AC(node* root);
-void FuncCallTo3AC(node* root,func*);
+void FuncCallTo3AC(node* root,func* function,bool isAssigemnt,char* varLabel);
 void primDeclarationsTo3AC(node* root);
 void expTo3AC(node* root);
+bool isOperator(char* value);
+void shortCircuitEvalTo3AC(node* root);
+void getCodeLabelsForShortCircuit(node* root);
 int calcBytesForFunc(func*);
 int getBytesByType(int);
 func* findFuncInGlobal(char* name);
@@ -172,9 +179,9 @@ node* root = NULL;
 program: code							                    {	root=$1;
 																startSemanticalAnalysis($1);
 																To3AC($1);
-																/*freeTree($1);
+																freeTree($1);
 																freeENVs(global);
-																getchar();*/
+																getchar();
 															}
 ;
 code: functions                          					{$$=mknode("CODE","",$1,mkleaf(")",""));}
@@ -278,9 +285,9 @@ while: WHILE '(' expression ')' condition_statement 		{$$=mknode("WHILE","",$3,m
 ;
 do_while: DO '{' decs_with_stats '}' WHILE '(' expression ')' ';'{$$=mknode("DO","",mknode("","INNER_ENV",NULL,$3),mknode("WHILE-COND","",$7,mkleaf(")","")));};
 for: FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' condition_statement 
-															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,mknode("","COND_STAT",NULL,$9)))),mkleaf(")",""));}
+															{$$=mknode("FOR","",mknode("INIT","",mknode("","PRIMASS",NULL,$3),mknode("CONDITION","",$5,mknode("UPDATE","",mknode("","PRIMASS",NULL,$7),mknode("","COND_STAT",NULL,$9)))),mkleaf(")",""));}
 | FOR '(' primitive_assignment ';' expression ';' primitive_assignment ')' '{' decs_with_stats '}'
-															{$$=mknode("FOR","",mknode("INIT","",$3,mknode("CONDITION","",$5,mknode("UPDATE","",$7,mknode("","INNER_ENV",NULL,$10)))),mkleaf(")",""));}
+															{$$=mknode("FOR","",mknode("INIT","",mknode("","PRIMASS",NULL,$3),mknode("CONDITION","",$5,mknode("UPDATE","",mknode("","PRIMASS",NULL,$7),mknode("","INNER_ENV",NULL,$10)))),mkleaf(")",""));}
 ;
 /*======================================================Return======================================================*/
 return: RETURN expression ';' 								{$$ = mknode("RETURN","",$2,mkleaf(")",""));}
@@ -348,6 +355,7 @@ node *mknode(char* value,char *desc,node *left,node *right){
  newnode->value = strdup(value);
  newnode->code = strdup("");
  newnode->var  = NULL;
+ newnode->var2  = NULL;
  newnode->label = NULL;
  newnode->truelabel = NULL;
  newnode->falselabel = NULL;
@@ -377,14 +385,28 @@ void printTabs( int tabs){
 void freeTree(node *tree){
 	if(!tree)
 		return;
-	if(tree->left){
-		freeTree(tree->left);
-	}
-	if(tree->right){
-	 freeTree(tree->right);
-	}
+	freeTree(tree->left);
+	freeTree(tree->right);
     free(tree->desc);
 	free(tree->value);
+	if(tree->truelabel){
+		free(tree->truelabel);
+	}
+	if(tree->falselabel){
+		free(tree->falselabel);
+	}
+	if(tree->code){
+		free(tree->code);
+	}
+	if(tree->var){
+		free(tree->var);
+	}
+	if(tree->var2){
+		free(tree->var2);
+	}
+	if(tree->label){
+		free(tree->label);
+	}
 	free(tree);
 }
 
@@ -682,27 +704,39 @@ int evalExpType(node* root, env* enviroment){
 	}
 
 	if(!strcmp(root->desc, "BOOL")){
-		root->var = newVarLabel();
+		if(!strcmp(root->value,"true")){
+			root->var = newVarLabel();
+			asprintf(&root->code,"\t\t%s = 1\n", root->var);
+		}
+		else{
+			root->var = newVarLabel();
+			asprintf(&root->code,"\t\t%s = 0\n", root->var);
+		}	
 		return BOOL;
 	} 
 	else if(!strcmp(root->desc, "CHAR")){
 		root->var = newVarLabel();
+		asprintf(&root->code,"\t\t%s = %s\n", root->var,root->value);
 		return CHAR;
 	} 
 	else if(!strcmp(root->desc, "INT")){
 		root->var = newVarLabel();
+		asprintf(&root->code,"\t\t%s = %s\n", root->var,root->value);
 		return INT;
 	} 
 	else if(!strcmp(root->desc, "REAL")){
 		root->var = newVarLabel();
+		asprintf(&root->code,"\t\t%s = %s\n", root->var,root->value);
 		return REAL;
 	} 
 	else if(!strcmp(root->desc, "STR")){
 		root->var = newVarLabel();
+		asprintf(&root->code,"\t\t%s = %s\n", root->var,root->value);
 		return STRING;
 	} 
 	else if(!strcmp(root->desc, "NULLP")){
 		root->var = newVarLabel();
+		asprintf(&root->code,"\t\t%s = 0\n", root->var);
 		return NULLPTR;
 	} 
 
@@ -715,6 +749,7 @@ int evalExpType(node* root, env* enviroment){
 		int value = getIDVarType(enviroment, root->value);
 		int leftson = evalExpType(root -> left, enviroment);
 		root->var = newVarLabel();
+		root->var2 = newVarLabel();
 		if(leftson != INT){
 			printf("Unsupported index value type %s for string type!\n", getTypeByNumber(leftson));
 			exitWithError();
@@ -816,7 +851,9 @@ int evalExpType(node* root, env* enviroment){
 	}else if(!strcmp(root->desc, "&&") || !strcmp(root->desc, "||")){
 		int leftson = evalExpType(root -> left->left, enviroment);
 		int rightson = evalExpType(root -> left->right, enviroment);
-		root->var = newVarLabel();
+		if(isSimpleCond(root)){
+			root->var = newVarLabel();
+		}
 		if (leftson != BOOL || rightson != BOOL ){
 			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
 			exitWithError();
@@ -1156,7 +1193,7 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(var_ass->type),getTypeByNumber(expType),var_ass->name,getTypeByNumber(var_ass->type));
 			exitWithError();
 		}
-		root->right->left->left->var = strdup(root->right->left->left->value);
+		root->var = strdup(root->right->left->left->value);
 	}
 	else if(!strcmp(root->desc,"INDEXASS")){
 		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
@@ -1170,7 +1207,9 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch for STRING[INDEX], expected CHAR but received %s\n",getTypeByNumber(assExpType));
 			exitWithError();
 		}
-		root->right->left->left->var = strdup(root->right->left->left->value);
+		root->value = strdup(root->right->left->left->value);
+		root->var = newVarLabel();
+		root->var2 = newVarLabel();
 	}
 	else if(!strcmp(root->desc,"PTRASS")){
 		var* var_ass = findVarForAssigment(global,root->right->left->left->left->value);
@@ -1180,7 +1219,7 @@ void checkAssigment(node *root){
 			printf("\n Assignment type mismatch for *ID, expected %s but received %s\n",getTypeByNumber(conreteType),getTypeByNumber(expType));
 			exitWithError();
 		}
-		root->right->left->left->left->var = strdup(root->right->left->left->left->value);
+		root->var = strdup(root->right->left->left->left->value);
 	}
 	else{
 		printf("\nLogical Error inside checkAssigment\n" );
@@ -1227,15 +1266,16 @@ void checkLoops(node* root){
 			global = popEnv(global);
 		}
 	}else if(!strcmp(root->value,"FOR")){
-		var* initVar = findVarForAssigment(global,root->left->left->left->left->value);
+		var* initVar = findVarForAssigment(global,root->left->left->right->left->left->value);
+		root->left->left->var= strdup(root->left->left->right->left->left->value);
 		if(!initVar){
-			printf("Undeclared variable received! %s\n", root->left->left->left->left->value);
+			printf("Undeclared variable received! %s\n", root->left->left->right->left->left->value);
 			exitWithError();
 		}else if(initVar->type != INT){
 			printf("For loop init variable must be an integer! received %s\n", getTypeByNumber(initVar->type));
 			exitWithError();
 		}
-		int initExp = evalExpType(root->left->left->left->right,global);
+		int initExp = evalExpType(root->left->left->right->left->right,global);
 		if(initExp != INT){
 			printf("For loop init variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(initExp));
 			exitWithError();
@@ -1245,15 +1285,16 @@ void checkLoops(node* root){
 			printf("Illegal for loop condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
 			exitWithError();
 		}
-		var* updVar = findVarForAssigment(global,root->left->right->right->left->left->left->value);
+		var* updVar = findVarForAssigment(global,root->left->right->right->left->right->left->left->value);
+		root->left->right->right->left->var = strdup(root->left->right->right->left->right->left->left->value);
 		if(!updVar){
-			printf("Undeclared variable received! %s\n", root->left->right->right->left->left->left->value);
+			printf("Undeclared variable received! %s\n", root->left->right->right->left->right->left->left->value);
 			exitWithError();
 		}else if(updVar->type != INT){
 			printf("For loop update variable must be an integer! received %s\n", getTypeByNumber(updVar->type));
 			exitWithError();
 		}
-		int updExp = evalExpType(root->left->right->right->left->left->right,global);
+		int updExp = evalExpType(root->left->right->right->left->right->left->right,global);
 		if(updExp != INT){
 			printf("For loop update variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(updExp));
 			exitWithError();
@@ -1315,7 +1356,7 @@ bool isPointer(int type){
 	}
 }
 
-
+/*PART 3 */ 
 char* newVarLabel(){
 	char* t;
 	asprintf(&t,"t%d",varLabel++);
@@ -1323,31 +1364,27 @@ char* newVarLabel(){
 }
 char* newCodeLabel(){
 	char* l;
-	asprintf(&l,"L%d:",codeLabel++);
+	asprintf(&l,"L%d",codeLabel++);
 	return l;
 }
 void print (node* root){
 	if(!root)
 		return;
+	printf("desc:%s \n val:%s\n",root->desc,root->value);
 	print(root->left);
 	print(root->right);
-	if(root->var != NULL)
-		printf("3AC:%s \t C: value-%s | desc:%s\n",root->var,root->value,root->desc);
+	
 }
-/*PART 3 */ 
+
 void To3AC(node* root){
 	if(root==NULL){
 		return;
 	}
 	if(!strcmp(root->value,"CODE")){
 		To3AC(root->left);
-		printf("%s",root->left->code);
-		//printToTxt(root->left->code);
-	}else if(!strcmp(root->value,"FUNCFROMBODY")){
-		//Add recursive call to root that is not FUNCTIONS 
-		return;
-	}
-	else if(!strcmp(root->desc,"FUNCTIONS")){
+		printf("CODE OK, CHECK output.txt file for 3AC :)\n ");
+		writeToTxtFile(root->left->code);
+	}else if(!strcmp(root->desc,"FUNCTIONS")){
 		To3AC(root->left);
 		To3AC(root->right);
 		if(root->left && root->right){
@@ -1369,6 +1406,9 @@ void To3AC(node* root){
 		else if(root->left){
 			root->code = strdup(root->left->code);
 		}
+	}else if(!strcmp(root->desc,"ENV_BLOCK")){
+		To3AC(root->left);
+		root->code = strdup(root->left->code);
 	}
 	else if(!strcmp(root->desc,"VARDECS")){
 		varDecsTo3AC(root);
@@ -1384,167 +1424,287 @@ void To3AC(node* root){
 	}else if(!strcmp(root->desc,"COND_STAT")){
 		conditionStatementTo3AC(root->right);
 		root->code = strdup(root->right->code);
-
 	}
 	return;
 }
-
 void condsTo3AC(node* root){
-	return;
-	/*if(!root){
-		return;
+	if(!root){
+		return;		
 	}else if(!strcmp(root->desc,"IF")){
-		int condExp = evalExpType(root->left,global);
-		if(condExp != BOOL){
-			printf("Illegal if condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
-			exitWithError();
-		}
-		condsTo3AC(root->right->left);
-		if(!strcmp(root->right->left->desc,"INNER_ENV")){
-			global = popEnv(global);
+		if (isSimpleCond(root->left)){
+			root->truelabel = newCodeLabel();
+			condsTo3AC(root->right->left);
+			root->falselabel = newCodeLabel();
+			expTo3AC(root->left);
+			asprintf(&root->code,"%s\t\tifz %s goto %s\n%s:%s\t\tgoto %s\n%s:",
+				root->left->code,
+				root->left->var,
+				root->falselabel,
+				root->truelabel,
+				root->right->left->code,
+				root->falselabel,
+				root->falselabel
+			);
+		}else{
+			getCodeLabelsForShortCircuit(root->left);
+			shortCircuitEvalTo3AC(root->left);
+			condsTo3AC(root->right->left);
+			asprintf(&root->code,"%s%s:%s%s:",
+				root->left->code,
+				root->left->truelabel,
+				root->right->left->code,
+				root->left->falselabel
+			);
+			
 		}
 	}else if(!strcmp(root->desc,"IFELSE")){
-		condsTo3AC(root->left);
-		condsTo3AC(root->right);
+		node* condExp = root->left->left; 
+		node* bodyIf = root->left->right->left;
+		node* bodyElse = root->right;
+		if (isSimpleCond(condExp)){	
+			root->truelabel = newCodeLabel();
+			condsTo3AC(bodyIf);
+			root->falselabel = newCodeLabel();
+			condsTo3AC(bodyElse);
+			root->label = newCodeLabel();
+			expTo3AC(condExp);
+			asprintf(&root->code,"%s\t\tifz %s goto %s\n%s:%s\t\tgoto %s\n%s:%s%s:",
+				condExp->code,
+				condExp->var,
+				root->falselabel,
+				root->truelabel,
+				bodyIf->code,
+				root->label,
+				root->falselabel,
+				root->right->code,
+				root->label
+			);
+		}else{	
+			getCodeLabelsForShortCircuit(condExp);
+			shortCircuitEvalTo3AC(condExp);
+			condsTo3AC(bodyIf);
+			condsTo3AC(root->right);
+			root->label = newCodeLabel();
+			printf("%s\n\n\n",condExp->code);
+			asprintf(&root->code,"%s%s:%s\t\tgoto %s\n%s:%s%s:",
+				condExp->code,
+				condExp->truelabel,
+				bodyIf->code,
+				root->label,
+				condExp->falselabel,
+				bodyElse->code,
+				root->label
+			);
+		}
 	}else if(!strcmp(root->desc,"ELSE")){
 		condsTo3AC(root->left->left);
-		if(!strcmp(root->left->left->desc,"INNER_ENV")){
-			global = popEnv(global);
-		}
+		root->code = strdup(root->left->left->code);
 	}else if(!strcmp(root->desc,"INNER_ENV")){
-		env* tmp = mkEnv(global->returnType);
-		global = pushEnv(global,tmp);
-		condsTo3AC(root->right);
+		varDecsTo3AC(root->right);
+		root->code = strdup(root->right->code);
 	}
 	else if(!strcmp(root->desc,"COND_STAT")){
 		conditionStatementTo3AC(root->right);
+		root->code = strdup(root->right->code);
 	}else{
-		printf("\nLogical Error inside checkConds\n" );
+		printf("\nLogical Error inside condsTo3AC\n" );
 		exitWithError();
-	}*/
+	}
 }
 void loopsTo3AC(node* root){
-	/*if(!root){
+	if(!root){
 		return;
 	}else if(!strcmp(root->value,"DO")){
-		loopsTo3AC(root->left);
-		int type = evalExpType(root->right->left,global);
-		if(type != BOOL){
-			printf("Do-while condition must be of type BOOL! received %s\n", getTypeByNumber(type));
-			exitWithError();
+		node * rootExp = root->right;
+		node* bodyDoWhile = root->left;
+		if (isSimpleCond(rootExp->left)){
+			root->truelabel = newCodeLabel();
+			loopsTo3AC(bodyDoWhile);
+			root->falselabel = newCodeLabel();
+			expTo3AC(rootExp->left);
+			asprintf(&root->code,"%s%s:%s\t\tifz %s goto %s\n\t\tgoto %s\n%s:",
+			rootExp->left->code,
+			root->truelabel,
+			root->left->code,
+			rootExp->left->var,
+			root->falselabel,
+			root->truelabel,
+			root->falselabel
+			);
+		}else{
+			loopsTo3AC(bodyDoWhile);
+			getCodeLabelsForShortCircuit(rootExp->left);
+			shortCircuitEvalTo3AC(rootExp->left);
+			asprintf(&root->code,"%s:%s%s%s:",
+				rootExp->left->truelabel,
+				bodyDoWhile->code,
+				rootExp->left->code,
+				rootExp->left->falselabel
+			);
 		}
-		global = popEnv(global);
+		
 	}else if(!strcmp(root->value,"WHILE")){
-		int type = evalExpType(root->left,global);
-		if(type != BOOL){
-			printf("While condition must be of type BOOL! received %s\n", getTypeByNumber(type));
-			exitWithError();
-		}
-		loopsTo3AC(root->right->left);
-		if(!strcmp(root->right->left->desc,"INNER_ENV")){
-			global = popEnv(global);
+		node* bodyWhile = root->right->left;
+		node* condEXP = root->left;
+		if (isSimpleCond(root->left)){
+			root->truelabel = newCodeLabel();
+			loopsTo3AC(bodyWhile);
+			root->falselabel = newCodeLabel();
+			expTo3AC(condEXP);
+			asprintf(&root->code,"%s%s:\t\tifz %s goto %s\n%s\t\tgoto %s\n%s:",
+				condEXP->code,
+				root->truelabel,
+				condEXP->var,
+				root->falselabel,
+				bodyWhile->code,
+				root->truelabel,
+				root->falselabel
+			);
+		}else{
+			root->truelabel = newCodeLabel();
+			getCodeLabelsForShortCircuit(condEXP);
+			shortCircuitEvalTo3AC(condEXP);
+			loopsTo3AC(bodyWhile);
+			asprintf(&root->code,"%s:%s%s:%s\t\tgoto %s\n%s:",
+				root->truelabel,
+				condEXP->code,
+				condEXP->truelabel,
+				bodyWhile->code,
+				root->truelabel,
+				condEXP->falselabel
+			);
 		}
 	}else if(!strcmp(root->value,"FOR")){
-		var* initVar = findVarForAssigment(global,root->left->left->left->left->value);
-		if(!initVar){
-			printf("Undeclared variable received! %s\n", root->left->left->left->left->value);
-			exitWithError();
-		}else if(initVar->type != INT){
-			printf("For loop init variable must be an integer! received %s\n", getTypeByNumber(initVar->type));
-			exitWithError();
-		}
-		int initExp = evalExpType(root->left->left->left->right,global);
-		if(initExp != INT){
-			printf("For loop init variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(initExp));
-			exitWithError();
-		}
-		int condExp = evalExpType(root->left->right->left,global);
-		if(condExp != BOOL){
-			printf("Illegal for loop condition expression! expected boolean but received %s\n", getTypeByNumber(condExp));
-			exitWithError();
-		}
-		var* updVar = findVarForAssigment(global,root->left->right->right->left->left->left->value);
-		if(!updVar){
-			printf("Undeclared variable received! %s\n", root->left->right->right->left->left->left->value);
-			exitWithError();
-		}else if(updVar->type != INT){
-			printf("For loop update variable must be an integer! received %s\n", getTypeByNumber(updVar->type));
-			exitWithError();
-		}
-		int updExp = evalExpType(root->left->right->right->left->left->right,global);
-		if(updExp != INT){
-			printf("For loop update variable assignment mismatch! expected integer but received %s\n", getTypeByNumber(updExp));
-			exitWithError();
-		}
-		loopsTo3AC(root->left->right->right->right);
-		if(!strcmp(root->left->right->right->right->desc,"INNER_ENV")){
-			global = popEnv(global);
+		node* blockCode = root->left->right->right->right;
+		node* initAss = root->left->left;
+		node* condExp = root->left->right->left;
+		node* updAss = root->left->right->right->left;
+		if (isSimpleCond(condExp)){
+			root->truelabel = newCodeLabel();
+			loopsTo3AC(blockCode);
+			root->falselabel = newCodeLabel();
+			expTo3AC(condExp->left);//condEXP
+			assigmentTo3AC(updAss);
+			assigmentTo3AC(initAss);
+			asprintf(&root->code,"%s%s:%s\t\tifz %s goto %s\n%s%s\t\tgoto %s\n%s:",
+				initAss->code,
+				root->truelabel,
+				condExp->code,
+				condExp->var,
+				root->falselabel,
+				blockCode->code,
+				updAss->code,
+				root->truelabel,
+				root->falselabel
+			);
+		}else{
+			root->truelabel = newCodeLabel();
+			getCodeLabelsForShortCircuit(condExp);
+			shortCircuitEvalTo3AC(condExp);
+			loopsTo3AC(blockCode);
+			assigmentTo3AC(updAss);
+			assigmentTo3AC(initAss);
+			asprintf(&root->code,"%s%s:%s%s:%s%s\t\tgoto %s\n%s:",
+				initAss->code,
+				root->truelabel,
+				condExp->code,
+				condExp->truelabel,
+				blockCode->code,
+				updAss->code,
+				root->truelabel,
+				condExp->falselabel
+			);
 		}
 	}else if(!strcmp(root->desc,"INNER_ENV")){
-		env* tmp = mkEnv(global->returnType);
-		global = pushEnv(global,tmp);
-
-		checkVarDecs(root->right);
+		varDecsTo3AC(root->right);
+		root->code = strdup(root->right->code);
 	}else if(!strcmp(root->desc,"COND_STAT")){
-		checkConditionStatement(root->right);
+		conditionStatementTo3AC(root->right);
+		root->code = strdup(root->right->code);
 	}else{
-		printf("\nLogical Error inside checkLoops\n" );
+		printf("\nLogical Error inside LoopsTo3AC\n" );
 		exitWithError();
-	}*/
+	}
 }
 
 void assigmentTo3AC(node *root){
-	/*if(!root){
+	if(!root){
 		return;
 	}
 	if(!strcmp(root->desc,"PRIMASS")){
-		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
-		int expType = evalExpType(root->right->left->right,global);
-		if(!assignmentCheck(var_ass->type,expType)){
-			printf("\n Assignment type mismatch %s != %s in VAR : %s [%s] \n",getTypeByNumber(var_ass->type),getTypeByNumber(expType),var_ass->name,getTypeByNumber(var_ass->type));
-			exitWithError();
+		if(isSimpleCond(root->right->left->right)){
+			expTo3AC(root->right->left->right);
+			if(root->right->left->right->var2){
+				asprintf(&root->code,"%s\t\t%s = *%s\n",root->right->left->right->code,root->var,root->right->left->right->var2);
+			}
+			else{
+				asprintf(&root->code,"%s\t\t%s = %s\n",root->right->left->right->code,root->var,root->right->left->right->var);
+			}
+		}else{
+			getCodeLabelsForShortCircuit(root->right->left->right);
+			shortCircuitEvalTo3AC(root->right->left->right);
+			root->label = newCodeLabel();
+			asprintf(&root->code,"%s%s:\t\t%s = 1\n\t\tgoto %s\n%s:\t\t%s = 0\n%s:",
+			root->right->left->right->code,
+			root->right->left->right->truelabel,
+			root->var,
+			root->label,
+			root->right->left->right->falselabel,
+			root->var,
+			root->label);
 		}
-		root->right->left->left->var = strdup(root->right->left->left->value);
+		
 	}
 	else if(!strcmp(root->desc,"INDEXASS")){
-		var* var_ass = findVarForAssigment(global,root->right->left->left->value);
-		int indexExpType = evalExpType(root->right->left->left->left,global);
-		if(indexExpType != INT){
-			printf("\n Index expression type is %s,but should be INT (in VAR : %s)\n",getTypeByNumber(indexExpType),var_ass->name);
-			exitWithError();
-		}
-		int assExpType = evalExpType(root->right->left->right,global);
-		if(!assignmentCheck(CHAR,assExpType)){
-			printf("\n Assignment type mismatch for STRING[INDEX], expected CHAR but received %s\n",getTypeByNumber(assExpType));
-			exitWithError();
-		}
-		root->right->left->left->var = strdup(root->right->left->left->value);
+		expTo3AC(root->right->left->left->left); // [EXP]
+		expTo3AC(root->right->left->right);//ass EXP
+		asprintf(&root->code,"%s%s\t\t%s = &%s\n\t\t%s = %s + %s\n\t\t*%s = %s\n",
+		root->right->left->left->left->code,
+		root->right->left->right->code,
+		root->var,
+		root->value,
+		root->var2,
+		root->var,
+		root->right->left->left->left->var,
+		root->var2,
+		root->right->left->right->var);
+
 	}
 	else if(!strcmp(root->desc,"PTRASS")){
-		var* var_ass = findVarForAssigment(global,root->right->left->left->left->value);
-		int conreteType = getConcreteType(var_ass->type);
-		int expType = evalExpType(root->right->left->right,global);
-		if(!assignmentCheck(conreteType,expType)){
-			printf("\n Assignment type mismatch for *ID, expected %s but received %s\n",getTypeByNumber(conreteType),getTypeByNumber(expType));
-			exitWithError();
-		}
-		root->right->left->left->left->var = strdup(root->right->left->left->left->value);
+		expTo3AC(root->right->left->right);
+		asprintf(&root->code,"%s\t\t*%s = %s\n",root->right->left->right->code,root->var,root->right->left->right->var);
 	}
-	else{
-		printf("\nLogical Error inside checkAssigment\n" );
-		exitWithError();
-	}*/
+	return;
+}
+bool isRelativeOp(char * value){
+	if (!strcmp("==", value) || !strcmp(">", value) || !strcmp("&&", value) 
+		|| !strcmp("!=", value)|| !strcmp("||", value) || !strcmp("<=", value) 
+		|| !strcmp("<", value) || !strcmp(">=", value)) {
+		return TRUE;
+	}
+	return FALSE;
+
+}
+bool isOperator(char* value){
+	if(isRelativeOp(value)){
+		return TRUE;
+	}else if( !strcmp("+", value) || !strcmp("-", value) || !strcmp("*", value) 
+		|| !strcmp("/", value)|| !strcmp("UN_OP",value))
+	{
+		return TRUE;	
+	}
+	return FALSE;
 }
 void conditionStatementTo3AC(node* root){
 	if(!strcmp(root->desc,"FUNC_CALL")){
 		func* function = findFuncInGlobal(root->left->value);
-		FuncCallTo3AC(root->left->left,function);
+		FuncCallTo3AC(root->left->left,function,FALSE,NULL);
 		if(root->left->left){
 			root->code = strdup(root->left->left->code);
 		}else{
 			asprintf(&root->code,"\t\tLCall %s\n",function->name);
 		}	
-	} /*else if(!strcmp(root->desc,"CONDS")){
+	} else if(!strcmp(root->desc,"CONDS")){
 		condsTo3AC(root->left);
 		root->code = strdup(root->left->code);
 	}else if(!strcmp(root->desc,"LOOPS")){
@@ -1552,37 +1712,55 @@ void conditionStatementTo3AC(node* root){
 		root->code = strdup(root->left->code);
 	}else if(!strcmp(root->desc,"RET")){
 		expTo3AC(root->left->left);
-		root->code = strdup(root->left->left->code);
+		asprintf(&root->code,"%s\t\tReturn %s\n",root->left->left->code,root->left->left->var);
 	}else if(!strcmp(root->desc,"RIGHT")){
 		assigmentTo3AC(root->left);
 		root->code = strdup(root->left->code);
-	}*/
+	}
 	
 	return;
 
 }
 void strDeclarationsTo3AC(node * root){
-	//TODO ASSIGNMENT: add string assignment that we did not check in semantics
-	/*if(!root){
+	if(!root){
 		return;
 	}
 	if(!strcmp(root->desc,"STR_1L")){
-		 global = addVarToEnv(global,mkVar(root->left->value,STRING));
+		if(root->right){
+			strDeclarationsTo3AC(root->right);	
+			root->code = strdup(root->right->code);
+		}
 	}else if(!strcmp(root->desc,"STR_2L")){
-		 global = addVarToEnv(global,mkVar(root->left->left->value,STRING));
+		 root->var = strdup(root->left->left->value);
+		 if(root->right){
+			strDeclarationsTo3AC(root->right);	
+			asprintf(&root->code,"\t\t%s = %s\n%s",root->var,root->left->right->value,root->right->code);
+		}else{
+			asprintf(&root->code,"\t\t%s = %s\n",root->var,root->left->right->value);
+		}
+		 
 	}else if(!strcmp(root->desc,"STR_3L")){
-		global = addVarToEnv(global,mkVar(root->left->left->left->value,STRING));
+		root->var = strdup(root->left->left->left->value);
+		if(root->right){
+			strDeclarationsTo3AC(root->right);	
+			asprintf(&root->code,"\t\t%s = %s\n%s",root->var,root->left->left->right->value,root->right->code);
+		}else{
+			asprintf(&root->code,"\t\t%s = %s\n",root->var,root->left->left->right->value);
+		}
+		
 	}else if(!strcmp(root->desc,"D-RIGHT")){
-		checkStrDeclarations(root->left);
-		root->code = strdup(root->left->code);
-	}else if(!strcmp(root->value,")")){
-		return;
-	}
-	else{
+		strDeclarationsTo3AC(root->left);
+		if(root->right){
+			strDeclarationsTo3AC(root->right);	
+			root->code = strdup(root->right->code);
+			asprintf(&root->code,"%s%s",root->left->code,root->right->code);
+		}
+		else{
+			root->code = strdup(root->left->code);
+		}
+	}else{
 		return;
 	}	
-	checkStrDeclarations(root->right);	
-	root->code = strdup(root->right->code);*/
 	
 }
 void varDecsTo3AC(node* root){
@@ -1610,9 +1788,7 @@ void varDecsTo3AC(node* root){
 		}
 	} else if(!strcmp(root->desc,"STR_DECS")){
 		strDeclarationsTo3AC(root->right);
-		if(root->right->code){
-			root->code = strdup(root->right->code);
-		}
+		root->code = strdup(root->right->code);
 		
 	}else if(!strcmp(root->desc,"STATEMENTS")){
 		To3AC(root->left);
@@ -1632,35 +1808,47 @@ void varDecsTo3AC(node* root){
 	}	
 }
 
-void FuncCallTo3AC(node* root,func* function){
+void FuncCallTo3AC(node* root,func* function,bool isAssigemnt,char* varLabel){
 	if(!root){
 		return;
 	}
-	printf("/nHERE1/n");
+	node* temp_root = root;
 	node* exp = NULL;
-	root->code = strdup(root->right->code);
+	if(root->right){
+		root->code = strdup(root->right->code);
+	}
 	char* code = NULL;
 	char* temp = NULL;
-	while(root){
-		exp = root->left;
+	char* pushParams = NULL;
+	char* temp_pushParams = NULL;
+	exp = temp_root->left;
+	expTo3AC(exp);
+	asprintf(&code,"%s",exp->code);
+	asprintf(&pushParams,"\t\tPushParam %s\n",exp->var);
+	temp_root= temp_root->right;
+	while(temp_root){
+		exp = temp_root->left;
 		expTo3AC(exp);
 		temp = code;
-		if(code){
-			free(code);
-			code = NULL;
-		}
-		if(temp){
-			asprintf(&code,"%s%s\t\tPushParam %s\n",temp,exp->code,exp->var);
-		}
-		else{
-			asprintf(&code,"%s\t\tPushParam %s\n",exp->code,exp->var);
-		}
+		code = NULL;
+		temp_pushParams = pushParams;
+		pushParams = NULL;
+		asprintf(&code,"%s%s",temp,exp->code);
+		asprintf(&pushParams,"%s\t\tPushParam %s\n",temp_pushParams,exp->var);
 		free(temp);
 		temp = NULL;
-		root= root->right;
+		free(temp_pushParams);
+		temp_pushParams = NULL;
+		temp_root= temp_root->right;
 	}
-	printf("/nHERE/n");
-	asprintf(&root->code,"%s\t\tLCall %s\n\t\tPopParams %d\n",code,function->name,calcBytesForFunc(function));
+	if(isAssigemnt){
+		asprintf(&root->code,"%s%s\t\t%s = LCall %s\n\t\tPopParams %d\n",code,pushParams,varLabel,function->name,calcBytesForFunc(function));
+	}
+	else{
+		asprintf(&root->code,"%s%s\t\tLCall %s\n\t\tPopParams %d\n",code,pushParams,function->name,calcBytesForFunc(function));
+	}
+	free(code);
+	free(pushParams);
 }
 
 void primDeclarationsTo3AC(node* root){
@@ -1668,26 +1856,72 @@ void primDeclarationsTo3AC(node* root){
 		return;
 	}
 	if(!strcmp(root->desc,"DEC_ASS_PRIM")){
-		expTo3AC(root->left->left->right);
-		asprintf(&root->code,"%s\t\t%s = %s\n",
-		root->left->left->right->code,root->left->left->left->var,root->left->left->right->var);
+		
+		if(isSimpleCond(root->left->left->right)){
+			expTo3AC(root->left->left->right);
+			asprintf(&root->code,"%s\t\t%s = %s\n",
+			root->left->left->right->code,root->left->left->left->var,root->left->left->right->var);
+		}else{
+			getCodeLabelsForShortCircuit(root->left->left->right);
+			shortCircuitEvalTo3AC(root->left->left->right);
+			root->label = newCodeLabel();
+			asprintf(&root->code,"%s%s:\t\t%s = 1\n\t\tgoto %s\n%s:\t\t%s = 0\n%s:",
+			root->left->left->right->code,
+			root->left->left->right->truelabel,
+			root->left->left->left->var,
+			root->label,
+			root->left->left->right->falselabel,
+			root->left->left->left->var,
+			root->label);
+		}
 	}else if(!strcmp(root->desc,"ID")){
 		primDeclarationsTo3AC(root->right);
-		root->code = strdup(root->right->code);
+		if(root->right){
+			root->code = strdup(root->right->code);
+		}
 	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_NODE")){
-		expTo3AC(root->left->left->right);
-		primDeclarationsTo3AC(root->right);
-		asprintf(&root->code,"%s\t\t%s = %s\n%s",
-		root->left->left->right->code,
-		root->left->left->left->var,
-		root->left->left->right->var,
-		root->right->code);
+		if(isSimpleCond(root->left->left->right)){
+			expTo3AC(root->left->left->right);
+			primDeclarationsTo3AC(root->right);
+			asprintf(&root->code,"%s\t\t%s = %s\n%s",
+			root->left->left->right->code,
+			root->left->left->left->var,
+			root->left->left->right->var,
+			root->right->code);
+		}else{
+			getCodeLabelsForShortCircuit(root->left->left->right);
+			shortCircuitEvalTo3AC(root->left->left->right);
+			primDeclarationsTo3AC(root->right);
+			root->label = newCodeLabel();
+			asprintf(&root->code,"%s%s:\t\t%s = 1\n\t\tgoto %s\n%s:\t\t%s = 0\n%s",
+			root->left->left->right->code,
+			root->left->left->right->truelabel,
+			root->left->left->left->var,
+			root->label,
+			root->left->left->right->falselabel,
+			root->left->left->left->var,
+			root->right->code);
+		}
 	}else if(!strcmp(root->desc,"DEC_ASS_PRIM_LEAF")){
-		expTo3AC(root->left->right);
-		asprintf(&root->code,"%s\t\t%s = %s\n",
-		root->left->right->code,
-		root->left->left->var,
-		root->left->right->var);
+		if(isSimpleCond(root->left->right)){
+			expTo3AC(root->left->right);
+			asprintf(&root->code,"%s\t\t%s = %s\n",
+			root->left->right->code,
+			root->left->left->var,
+			root->left->right->var);
+		}else{
+			getCodeLabelsForShortCircuit(root->left->right);
+			shortCircuitEvalTo3AC(root->left->right);
+			root->label = newCodeLabel();
+			asprintf(&root->code,"%s%s:\t\t%s = 1\n\t\tgoto %s\n%s:\t\t%s = 0\n%s:",
+			root->left->right->code,
+			root->left->right->truelabel,
+			root->left->left->var,
+			root->label,
+			root->left->right->falselabel,
+			root->left->left->var,
+			root->label);
+		}	
 	}
 	return;
 }
@@ -1697,20 +1931,19 @@ void expTo3AC(node* root){
 		|| !strcmp(root->desc, "CHAR")
 		|| !strcmp(root->desc, "INT")
 	    || !strcmp(root->desc, "REAL")
-	){
-		asprintf(&root->code,"\t\t%s = %s\n",root->var,root->value);
-	}
-	else if(!strcmp(root->desc, "STR")){
-		asprintf(&root->code,"\t\t%s = \"%s\"\n",root->var,root->value);
-	}
-	else if(!strcmp(root->desc, "NULLP")){
-		asprintf(&root->code,"\t\t%s = 0\n",root->var);
-	} 
-	else if(!strcmp(root->desc, "ID")){
-		root->code = strdup("");
+		|| !strcmp(root->desc, "NULLP")
+		|| !strcmp(root->desc, "ID"))
+	{
+			return;
 	}else if(!strcmp(root->desc, "ID_INDEX")){
 		expTo3AC(root->left);
-		asprintf(&root->code,"%s\t\t%s = *%s + %s\n",root->left->code,root->var,root->value,root->left->var);
+		asprintf(&root->code,"%s\t\t%s = &%s\n\t\t%s = %s + %s\n",
+		root->left->code,
+		root->var,
+		root->value,
+		root->var2,
+		root->var,
+		root->left->var);
 	}
 	else if(!strcmp(root->desc, "UN_OP") && (!strcmp(root->value, "+") 
 		|| !strcmp(root->value, "-")
@@ -1725,28 +1958,9 @@ void expTo3AC(node* root){
 		expTo3AC(root->left->left);
 		asprintf(&root->code,"%s\t\t%s = &%s + %s\n",root->left->left->code,root->var,root->left->value,root->left->left->var);
 	}
-	else if(!strcmp(root->desc, "+") || !strcmp(root->desc, "-") || !strcmp(root->desc, "*")|| !strcmp(root->desc, "/") ){
-		expTo3AC(root->left->left);
-		expTo3AC(root->left->right);
-		asprintf(&root->code,"%s%s\t\t%s = %s %s %s\n",
-		root->left->left->code,
-		root->left->right->code,
-		root->var,
-		root->left->left->var,
-		root->desc,
-		root->left->right->var);
-	}else if(!strcmp(root->desc, "&&") || !strcmp(root->desc, "||") || !strcmp(root->desc, "!=") || !strcmp(root->desc, "==")){
-		/*TODO:
-		int leftson = evalExpType(root -> left->left, enviroment);
-		int rightson = evalExpType(root -> left->right, enviroment);
-		root->var = newVarLabel();
-		if (leftson != BOOL || rightson != BOOL ){
-			printf("Unsupported operator %s for types %s and %s\n", root->desc, getTypeByNumber(leftson),getTypeByNumber(rightson));
-			exitWithError();
-		}
-		else return BOOL;*/
-
-	}else if(!strcmp(root->desc, "<") || !strcmp(root->desc, ">")|| !strcmp(root->desc, "<=")|| !strcmp(root->desc, ">=")){
+	else if(!strcmp(root->desc, "+") || !strcmp(root->desc, "-") || !strcmp(root->desc, "*")|| !strcmp(root->desc, "/") 
+	        || !strcmp(root->desc, "!=") || !strcmp(root->desc, "==") || !strcmp(root->desc, "<")
+			|| !strcmp(root->desc, ">")  || !strcmp(root->desc, "<=") || !strcmp(root->desc, ">=") || !strcmp(root->desc, "||") || !strcmp(root->desc, "&&")){
 		expTo3AC(root->left->left);
 		expTo3AC(root->left->right);
 		asprintf(&root->code,"%s%s\t\t%s = %s %s %s\n",
@@ -1759,11 +1973,11 @@ void expTo3AC(node* root){
 	}else if(!strcmp(root->desc, "IDLEN")){
 		asprintf(&root->code,"\t\t%s = |%s|\n",
 		root->var,
-		root->left->left->var);
+		root->left->var);
 	}else if(!strcmp(root->value, "FUNC_CALL")){
-		//TODO:
-		/*func* function = getFuncByID(enviroment,root->left->value);
-		evaluateFuncCall(root->left->left, function,enviroment);*/
+		func* function = findFuncInGlobal(root->left->value);
+		FuncCallTo3AC(root->left->left,function,TRUE,root->var);
+		asprintf(&root->code,"%s",root->left->left->code);
 	}
 	return;
 }
@@ -1781,24 +1995,273 @@ func* findFuncInGlobal(char* name){
 
 int calcBytesForFunc(func* f){
 	int counter = 0;
-	for(int i = 0 ; i<f->numOfArgs; i++)
+	int size =f->numOfArgs ;
+	for(int i = 0 ; i<size; i++)
 		counter += getBytesByType(f->argsType[i]);
 	return counter;
 }
 int getBytesByType(int type){
-	if(type == BOOL){
+	if(type == BOOL || type == INT){
 		return 4;
-	}else if(type == REAL){
+	}else if(type == REAL || type == INTP || type == CHARP || type == REALP){
 		return 8;
 	}else if(type == CHAR){
 		return 1;
-	}else if(type == INTP){
-		return 8;
-	}else if(type == CHARP){
-		return 8;
-	}else if(type == REALP){
-		return 8;
 	}
 	return 0;
 
+}
+void shortCircuitEvalTo3AC(node* root){
+	node* leftson = root->left->left;
+	node* rightson = root->left->right;
+	bool leftsonIsSimple = isSimpleCond(leftson);
+	bool rightsonIsSimple = isSimpleCond(rightson);
+	bool isAndOperator = !strcmp(root->desc,"&&");
+    bool isOrOperator = !isAndOperator;
+	if(leftsonIsSimple){
+		expTo3AC(leftson);
+	}else{
+		shortCircuitEvalTo3AC(leftson);
+	}
+
+
+	if(rightsonIsSimple){
+		expTo3AC(rightson);
+	}else{
+		shortCircuitEvalTo3AC(rightson);
+	}
+	if(isAndOperator && leftsonIsSimple && rightsonIsSimple){
+		//same t & f labels
+		asprintf(&root->code,"%s\t\tifz %s goto %s\n%s\t\tifz %s goto %s\n",
+			leftson->code,
+			leftson->var,          
+			root->falselabel, 
+			rightson->code,
+			rightson->var,          
+			root->falselabel
+		);
+	}else if(isOrOperator && leftsonIsSimple && rightsonIsSimple){
+		//same t & f labels
+		asprintf(&root->code,"%s\t\tif %s goto %s\n%s\t\tif %s goto %s\n\t\tgoto %s\n",
+			leftson->code,
+			leftson->var,          
+			root->truelabel, 
+			rightson->code,
+			rightson->var,          
+			root->truelabel,
+			root->falselabel
+		);
+	}else if(isAndOperator && !leftsonIsSimple && rightsonIsSimple){
+		if(!strcmp(leftson->desc,"&&")){
+			asprintf(&root->code,"%s%s:%s\t\tifz %s goto %s\n\t\tgoto %s\n",
+			leftson->code,
+			leftson->truelabel,
+			rightson->code,
+			rightson->var,          
+			root->falselabel,
+			root->truelabel
+			);
+		}else{
+			asprintf(&root->code,"%s%s:%s\t\tifz %s goto %s\n\t\tgoto %s\n",
+			leftson->code,
+			leftson->truelabel,
+			rightson->code,
+			rightson->var,          
+			root->falselabel,
+			root->truelabel
+			);
+		}
+	}else if(isOrOperator && !leftsonIsSimple && rightsonIsSimple){
+		if(!strcmp(leftson->desc,"&&")){
+			//same t but diff f labes
+			asprintf(&root->code,"%s\t\tgoto %s\n%s:%s\t\tif %s goto %s\n\t\tgoto %s\n",
+			leftson->code, 
+			leftson->truelabel,
+			leftson->falselabel,
+			rightson->code,
+			rightson->var,          
+			root->truelabel,
+			root->falselabel
+			);
+		}else{
+			//same t but diff f labes
+			asprintf(&root->code,"%s%s:\t\tif %s goto %s\n%s\t\tgoto %s\n",
+			leftson->code,
+			leftson->falselabel,
+			rightson->var,          
+			root->truelabel,
+			rightson->code,
+			root->falselabel
+			);
+		}
+		
+	}else if(isAndOperator && leftsonIsSimple && !rightsonIsSimple){
+		if(!strcmp(rightson->desc,"&&")){
+			asprintf(&root->code,"%s\t\tifz %s goto %s\n%s", 
+			leftson->code,
+			leftson->var,          
+			root->falselabel, 
+			rightson->code
+			);
+		}else{
+			asprintf(&root->code,"%s\t\tifz %s goto %s\n%s",
+			leftson->code,
+			leftson->var,          
+			root->falselabel, 
+			rightson->code
+			);
+		}
+		
+	}else if(isOrOperator && leftsonIsSimple && !rightsonIsSimple){
+		//same t & f labels 
+		if(!strcmp(rightson->desc,"&&")){
+			asprintf(&root->code,"%s\t\tif %s goto %s\n%s", 
+			leftson->code,
+			leftson->var,          
+			root->truelabel, 
+			rightson->code
+			);
+		}else{
+			asprintf(&root->code,"%s\t\tif %s goto %s\n%s",
+			leftson->code,
+			leftson->var,          
+			root->truelabel, 
+			rightson->code
+			);
+		}
+			
+	}else if(isAndOperator && !leftsonIsSimple && !rightsonIsSimple){
+		if(!strcmp(leftson->desc,"&&") && !strcmp(rightson->desc,"||") ){
+			asprintf(&root->code,"%s%s",
+			leftson->code,
+			rightson->code      
+			);
+		}else if(!strcmp(leftson->desc,"||") &&!strcmp(rightson->desc,"&&") ){
+			asprintf(&root->code,"%s%s:%s\t\tgoto %s\n",
+			leftson->code,
+			leftson->truelabel,
+			rightson->code,
+			root->truelabel      
+			);
+		}else if(!strcmp(leftson->desc,"&&") &&!strcmp(rightson->desc,"&&") ){
+			asprintf(&root->code,"%s%s\t\tgoto %s\n",
+			leftson->code,
+			rightson->code,
+			root->truelabel      
+			);
+		}else if(!strcmp(leftson->desc,"||") &&!strcmp(rightson->desc,"||") ){
+			asprintf(&root->code,"%s%s:%s\t\tgoto %s\n",
+			leftson->code,
+			leftson->truelabel,
+			rightson->code,
+			root->falselabel      
+			);
+		}else{
+			printf("Logical error inside shortCircuitEvalTo3AC 1\n");
+			exitWithError();
+		}
+	}else if(isOrOperator && !leftsonIsSimple && !rightsonIsSimple){
+		if(!strcmp(leftson->desc,"&&") && !strcmp(rightson->desc,"||") ){
+			asprintf(&root->code,"%s\t\tgoto %s\n%s:%s",
+			leftson->code,
+			root->truelabel,
+			leftson->falselabel,
+			rightson->code      
+			);
+		}else if(!strcmp(leftson->desc,"&&") && !strcmp(rightson->desc,"&&") ){
+			//same t but diff f labes
+			asprintf(&root->code,"%s\t\tgoto %s\n%s:%s\t\tgoto %s\n",
+			leftson->code,
+			leftson->truelabel,
+			leftson->falselabel,
+			rightson->code,
+			root->truelabel      
+			);
+		}else if(!strcmp(leftson->desc,"||") && !strcmp(rightson->desc,"&&")){
+			asprintf(&root->code,"%s\t\tgoto %s\n%s:%s",
+			leftson->code,
+			leftson->falselabel,
+			leftson->falselabel,
+			rightson->code      
+			);
+		}else if(!strcmp(leftson->desc,"||") && !strcmp(rightson->desc,"||")){
+			asprintf(&root->code,"%s%s:%s",
+			leftson->code,
+			leftson->falselabel,
+			rightson->code      
+			);
+		}else{
+			printf("Logical error inside shortCircuitEvalTo3AC 2\n");
+			exitWithError();
+		}
+	}else{
+		printf("\nLogical Error inside shortCircuitEvalTo3AC!\n" );
+		exitWithError();
+	}
+}
+bool isSimpleCond(node* root){
+	return !isOperator(root->desc) ||(!isRelativeOp(root->left->left->desc) && !isRelativeOp(root->left->right->desc)) || (strcmp(root->desc,"&&") &&  strcmp(root->desc,"||"));
+}
+void getCodeLabelsForShortCircuit(node* root){
+	if(!root || !root->left || !root->right || !root->left->left || !root->left->right){
+		return;
+	}
+	node* leftson = root->left->left;
+	node* rightson = root->left->right;
+	bool leftsonIsSimple = isSimpleCond(leftson);
+	bool rightsonIsSimple = isSimpleCond(rightson);
+	bool isAndOperator = !strcmp(root->desc,"&&");
+    bool isOrOperator = !strcmp(root->desc,"||");
+	if(leftsonIsSimple && rightsonIsSimple && (isAndOperator || isOrOperator)){
+		root->truelabel = newCodeLabel();
+		root->falselabel = newCodeLabel();
+	}else if(isAndOperator && !leftsonIsSimple && rightsonIsSimple){
+		getCodeLabelsForShortCircuit(leftson);
+		root->truelabel = newCodeLabel();
+		root->falselabel = strdup(leftson->falselabel);
+	}else if(isOrOperator && !leftsonIsSimple && rightsonIsSimple){
+		getCodeLabelsForShortCircuit(leftson);
+		root->falselabel = newCodeLabel();
+		root->truelabel = strdup(leftson->truelabel);
+	}else if(leftsonIsSimple && !rightsonIsSimple){
+		getCodeLabelsForShortCircuit(rightson);
+		root->truelabel = strdup(rightson->truelabel);
+		root->falselabel = strdup(rightson->falselabel);
+	}else if(isAndOperator && !leftsonIsSimple && !rightsonIsSimple){
+		if(!strcmp(leftson->desc,"&&")){
+			//same f but diff t labels
+			getCodeLabelsForShortCircuit(leftson);
+			rightson->truelabel = strdup(leftson->truelabel);
+			rightson->falselabel = strdup(leftson->falselabel);
+			root->truelabel = strdup(rightson->truelabel);
+			root->falselabel = strdup(rightson->falselabel);
+			getCodeLabelsForShortCircuit(rightson->left->left);
+			getCodeLabelsForShortCircuit(rightson->left->right);
+		}else if(!strcmp(leftson->desc,"||")){
+			getCodeLabelsForShortCircuit(leftson);
+			root->truelabel = newCodeLabel();
+			root->falselabel = strdup(leftson->falselabel);
+			rightson->truelabel = strdup(root->truelabel);
+			rightson->falselabel = strdup(root->falselabel);
+			getCodeLabelsForShortCircuit(rightson->left->left);
+			getCodeLabelsForShortCircuit(rightson->left->right);
+		}
+	}else if(isOrOperator && !leftsonIsSimple && !rightsonIsSimple){
+			getCodeLabelsForShortCircuit(leftson);
+			root->truelabel = strdup(leftson->truelabel);
+			root->falselabel = newCodeLabel();
+			rightson->truelabel = strdup(root->truelabel);
+			rightson->falselabel = strdup(root->falselabel);
+			getCodeLabelsForShortCircuit(rightson->left->left);
+			getCodeLabelsForShortCircuit(rightson->left->right);
+	}
+}
+void writeToTxtFile(char* code){
+	FILE* file  = fopen("output.txt", "w+");
+	if (file == NULL){
+    	printf("Error opening file!\n");
+    	exitWithError();
+	}
+	fprintf(file, "%s", code);
+	fclose(file);
 }
