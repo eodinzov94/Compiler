@@ -1485,7 +1485,6 @@ void condsTo3AC(node* root){
 			condsTo3AC(bodyIf);
 			condsTo3AC(root->right);
 			root->label = newCodeLabel();
-			printf("%s\n\n\n",condExp->code);
 			asprintf(&root->code,"%s%s:%s\t\tgoto %s\n%s:%s%s:",
 				condExp->code,
 				condExp->truelabel,
@@ -1672,7 +1671,10 @@ void assigmentTo3AC(node *root){
 	}
 	else if(!strcmp(root->desc,"PTRASS")){
 		expTo3AC(root->right->left->right);
-		asprintf(&root->code,"%s\t\t*%s = %s\n",root->right->left->right->code,root->var,root->right->left->right->var);
+		asprintf(&root->code,"%s\t\t*%s = %s\n",
+		root->right->left->right->code,
+		root->var,
+		root->right->left->right->var);
 	}
 	return;
 }
@@ -1947,8 +1949,8 @@ void expTo3AC(node* root){
 	}
 	else if(!strcmp(root->desc, "UN_OP") && (!strcmp(root->value, "+") 
 		|| !strcmp(root->value, "-")
-		|| strcmp(root->value, "*")
-		|| strcmp(root->value, "!"))) {
+		|| !strcmp(root->value, "*")
+		|| !strcmp(root->value, "!"))) {
 		expTo3AC(root->left);
 		asprintf(&root->code,"%s\t\t%s = %s%s\n",root->left->code,root->var,root->value,root->left->var);
 	}else if(!strcmp(root->desc, "ADDR")){
@@ -2200,6 +2202,9 @@ void shortCircuitEvalTo3AC(node* root){
 	}
 }
 bool isSimpleCond(node* root){
+	if(!root || !root->left || !root->right || !root->left->left || !root->left->right){
+		return TRUE;
+	}
 	return !isOperator(root->desc) ||(!isRelativeOp(root->left->left->desc) && !isRelativeOp(root->left->right->desc)) || (strcmp(root->desc,"&&") &&  strcmp(root->desc,"||"));
 }
 void getCodeLabelsForShortCircuit(node* root){

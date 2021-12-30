@@ -1,6 +1,0 @@
-function void main(){
-    var bool x = false;
-    if(x||3>5&&x){
-        x = false;
-    }
-}
